@@ -1,4 +1,7 @@
 const TEXTURE_CHANNELS = ['baseColor', 'normal', 'roughness', 'metalness', 'ao', 'emissive', 'alpha', 'displacement']
+const EXPORT_MANIFEST = '.frame-export-manifest.json'
+const DRACO_DECODERS = ['draco/gltf/draco_decoder.js', 'draco/gltf/draco_decoder.wasm', 'draco/gltf/draco_wasm_wrapper.js']
+const KTX2_TRANSCODERS = ['basis/basis_transcoder.js', 'basis/basis_transcoder.wasm']
 
 const slugify = (value, fallback = 'asset') => {
   const slug = String(value || '').trim().toLowerCase().replace(/[^a-z0-9_\u4e00-\u9fff]+/g, '-').replace(/^-+|-+$/g, '')
@@ -16,13 +19,52 @@ const extensionFrom = (source, name, fallback) => {
 const fetchAsset = async (source) => {
   const response = await fetch(source)
   if (!response.ok) throw new Error(`资源读取失败：${source}`)
+  if (response.headers.get('content-type')?.includes('text/html')) throw new Error(`资源地址返回了 HTML：${source}`)
   return response.blob()
+}
+
+const hashBytes = async (value) => {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : new Uint8Array(await value.arrayBuffer())
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+const collectAssetReferences = (objects) => objects.flatMap((object) => {
+  const references = []
+  if (object.type === 'model' && object.modelSource) references.push({ object: object.name, kind: '模型', source: object.modelSource })
+  for (const channel of TEXTURE_CHANNELS) {
+    const texture = object.textures?.[channel]
+    if (texture?.data) references.push({ object: object.name, kind: `${channel} 贴图`, source: texture.data })
+  }
+  if (object.map && !object.textures?.baseColor?.data) references.push({ object: object.name, kind: '基础色贴图', source: object.map })
+  return references
+})
+
+export async function validateSceneAssets(objects) {
+  const references = collectAssetReferences(objects)
+  const issues = []
+  await Promise.all(references.map(async (reference) => {
+    try {
+      if (reference.source.startsWith('data:')) {
+        if (!/^data:[^;,]+(?:;base64)?,.+/.test(reference.source)) throw new Error('Data URL 无效')
+        return
+      }
+      const response = await fetch(reference.source, { method: reference.source.startsWith('blob:') ? 'GET' : 'HEAD' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      if (response.headers.get('content-type')?.includes('text/html')) throw new Error('资源地址返回了 HTML 页面')
+    } catch (error) {
+      issues.push({ ...reference, message: error?.message || '无法读取资源' })
+    }
+  }))
+  return { references: references.length, issues }
 }
 
 const sceneRuntime = `import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { Sky } from 'three/addons/objects/Sky.js'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 
@@ -162,10 +204,23 @@ export async function createThreeScene(container, config, options = {}) {
     scene.add(rim)
   }
   if (settings.hemisphereEnabled) scene.add(new THREE.HemisphereLight(settings.hemisphereSkyColor, settings.hemisphereGroundColor, settings.hemisphereIntensity))
-  settings.customLights.forEach((light) => addLight(scene, light))
+  ;(settings.customLights || []).forEach((light) => addLight(scene, light))
 
   const textureLoader = new THREE.TextureLoader()
   const gltfLoader = new GLTFLoader()
+  let dracoLoader
+  let ktx2Loader
+  if (config.build?.draco) {
+    dracoLoader = new DRACOLoader()
+    dracoLoader.setDecoderPath(new URL('assets/decoders/draco/gltf/', assetBaseUrl).href)
+    gltfLoader.setDRACOLoader(dracoLoader)
+  }
+  if (config.build?.ktx2) {
+    ktx2Loader = new KTX2Loader()
+    ktx2Loader.setTranscoderPath(new URL('assets/decoders/basis/', assetBaseUrl).href)
+    ktx2Loader.detectSupport(renderer)
+    gltfLoader.setKTX2Loader(ktx2Loader)
+  }
   for (const object of objects) {
     let node
     if (object.type === 'model') {
@@ -233,6 +288,8 @@ export async function createThreeScene(container, config, options = {}) {
       cancelAnimationFrame(frame)
       observer.disconnect()
       controls.dispose()
+      dracoLoader?.dispose()
+      ktx2Loader?.dispose()
       scene.traverse((child) => {
         child.geometry?.dispose()
         const materials = Array.isArray(child.material) ? child.material : [child.material]
@@ -249,19 +306,48 @@ export async function createThreeScene(container, config, options = {}) {
 }
 `
 
-const reactComponent = `import React, { useEffect, useRef } from 'react'
-import { sceneConfig } from '../config/scene.config.js'
-import { createThreeScene } from '../runtime/createThreeScene.js'
+const typesTemplate = `export interface ThreeSceneRuntime {
+  scene: unknown
+  camera: unknown
+  renderer: unknown
+  dispose(): void
+}
+
+export interface ThreeSceneProps {
+  className?: string
+  controls?: boolean
+  grid?: boolean
+  shadows?: boolean
+  onReady?: (runtime: ThreeSceneRuntime) => void
+}
+
+export interface SceneConfig {
+  version: number
+  name: string
+  exportedAt: string
+  build: { draco: boolean; ktx2: boolean }
+  settings: Record<string, unknown>
+  editor: Record<string, unknown>
+  objects: Array<Record<string, unknown>>
+}
+`
+
+const componentFor = (framework, language) => {
+  const typed = language === 'ts'
+  const moduleExtension = typed ? 'ts' : 'js'
+  const importExtension = typed ? '' : `.${moduleExtension}`
+  if (framework === 'react') return `import React, { useEffect, useRef } from 'react'
+${typed ? "import type { ThreeSceneProps, ThreeSceneRuntime } from '../types'\n" : ''}import { sceneConfig } from '../config/scene.config${importExtension}'
+import { createThreeScene } from '../runtime/createThreeScene${importExtension}'
 import '../styles/three-scene.css'
 
-export function ThreeScene({ className = '', controls = true, grid, shadows = true, onReady }) {
-  const containerRef = useRef(null)
+export function ThreeScene(${typed ? "{ className = '', controls = true, grid, shadows = true, onReady }: ThreeSceneProps" : "{ className = '', controls = true, grid, shadows = true, onReady }"}) {
+  const containerRef = useRef${typed ? '<HTMLDivElement | null>' : ''}(null)
   useEffect(() => {
     let disposed = false
-    let runtime
-    createThreeScene(containerRef.current, sceneConfig, {
-      controls, grid, shadows, assetBaseUrl: new URL('../', import.meta.url),
-    }).then((instance) => {
+    let runtime${typed ? ': ThreeSceneRuntime | undefined' : ''}
+    if (!containerRef.current) return undefined
+    createThreeScene(containerRef.current, sceneConfig, { controls, grid, shadows, assetBaseUrl: new URL('../', import.meta.url) }).then((instance) => {
       if (disposed) instance.dispose()
       else { runtime = instance; onReady?.(instance) }
     })
@@ -271,18 +357,16 @@ export function ThreeScene({ className = '', controls = true, grid, shadows = tr
 }
 `
 
-const vueComponent = `<script setup>
+  return `<script setup${typed ? ' lang="ts"' : ''}>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { sceneConfig } from '../config/scene.config.js'
-import { createThreeScene } from '../runtime/createThreeScene.js'
+${typed ? "import type { ThreeSceneRuntime } from '../types'\n" : ''}import { sceneConfig } from '../config/scene.config${importExtension}'
+import { createThreeScene } from '../runtime/createThreeScene${importExtension}'
 import '../styles/three-scene.css'
 
-const props = defineProps({ controls: { type: Boolean, default: true }, grid: { type: Boolean, default: undefined }, shadows: { type: Boolean, default: true } })
-const emit = defineEmits(['ready'])
-const container = ref(null)
-let runtime
+${typed ? "const props = withDefaults(defineProps<{ controls?: boolean; grid?: boolean; shadows?: boolean }>(), { controls: true, shadows: true })\nconst emit = defineEmits<{ ready: [runtime: ThreeSceneRuntime] }>()\nconst container = ref<HTMLDivElement | null>(null)\nlet runtime: ThreeSceneRuntime | undefined" : "const props = defineProps({ controls: { type: Boolean, default: true }, grid: { type: Boolean, default: undefined }, shadows: { type: Boolean, default: true } })\nconst emit = defineEmits(['ready'])\nconst container = ref(null)\nlet runtime"}
 let disposed = false
 onMounted(async () => {
+  if (!container.value) return
   const instance = await createThreeScene(container.value, sceneConfig, { ...props, assetBaseUrl: new URL('../', import.meta.url) })
   if (disposed) instance.dispose()
   else { runtime = instance; emit('ready', instance) }
@@ -292,17 +376,69 @@ onBeforeUnmount(() => { disposed = true; runtime?.dispose() })
 
 <template><div ref="container" class="three-scene" /></template>
 `
+}
 
-const readmeFor = (framework, sceneName) => `# ${sceneName}
+const optimizationScriptFor = (draco, ktx2) => `import { createHash } from 'node:crypto'
+import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
-由 FRAME Three Editor 导出的可移植 ${framework === 'react' ? 'React' : 'Vue'} 场景组件。
+const settings = ${JSON.stringify({ draco, ktx2 })}
+const modelsDirectory = resolve('src/assets/models')
+const cacheFile = resolve('.frame-optimize-cache.json')
+const binary = resolve('node_modules/.bin/gltf-transform' + (process.platform === 'win32' ? '.cmd' : ''))
+const digest = (buffer) => createHash('sha256').update(buffer).digest('hex')
+const run = (args) => {
+  const result = spawnSync(binary, args, { stdio: 'inherit', shell: process.platform === 'win32' })
+  if (result.status !== 0) throw new Error('glTF Transform failed: ' + args[0])
+}
+
+let cache = {}
+try { cache = JSON.parse(await readFile(cacheFile, 'utf8')) } catch { /* First optimization run. */ }
+let files = []
+try { files = (await readdir(modelsDirectory)).filter((name) => name.toLowerCase().endsWith('.glb')) } catch { /* No models. */ }
+for (const name of files) {
+  const source = resolve(modelsDirectory, name)
+  const sourceHash = digest(await readFile(source))
+  if (cache[name]?.outputHash === sourceHash && JSON.stringify(cache[name].settings) === JSON.stringify(settings)) {
+    console.log('skip unchanged:', name)
+    continue
+  }
+  let current = source
+  const temporary = []
+  if (settings.draco) {
+    const output = source + '.frame-draco.glb'
+    run(['draco', current, output])
+    current = output
+    temporary.push(output)
+  }
+  if (settings.ktx2) {
+    const output = source + '.frame-ktx2.glb'
+    run(['uastc', current, output])
+    current = output
+    temporary.push(output)
+  }
+  if (current !== source) {
+    await rm(source, { force: true })
+    await rename(current, source)
+    await Promise.all(temporary.filter((path) => path !== current).map((path) => rm(path, { force: true })))
+  }
+  cache[name] = { settings, outputHash: digest(await readFile(source)) }
+  console.log('optimized:', name)
+}
+await writeFile(cacheFile, JSON.stringify(cache, null, 2) + '\\n')
+`
+
+const readmeFor = (framework, sceneName, language, optimize) => `# ${sceneName}
+
+由 FRAME Three Editor 导出的可移植 ${framework === 'react' ? 'React' : 'Vue'} ${language === 'ts' ? 'TypeScript' : 'JavaScript'} 场景组件。
 
 ## 使用
 
 1. 将整个 \`three_scene\` 目录复制到目标项目。
-2. 确保项目已安装 \`three\`${framework === 'react' ? ' 和 \`react\`' : ' 和 \`vue\`'}。
-3. 导入组件：\`import { ThreeScene } from './three_scene/src/index.js'\`。
-4. 给组件或父容器设置明确高度，例如 \`height: 600px\`。
+2. 安装依赖：\`npm install\`。
+${optimize ? '3. 执行资源优化：`npm run optimize:assets`。脚本使用内容哈希跳过未变化模型。\n4.' : '3.'} 从 \`src/index.${language === 'ts' ? 'ts' : 'js'}\` 导入 \`ThreeScene\`。
+5. 给组件或父容器设置明确高度，例如 \`height: 600px\`。
 
 ${framework === 'react' ? '\`<ThreeScene controls grid shadows />\`' : '\`<ThreeScene :controls="true" :grid="true" :shadows="true" />\`'}
 
@@ -311,31 +447,48 @@ ${framework === 'react' ? '\`<ThreeScene controls grid shadows />\`' : '\`<Three
 - \`components\`：框架组件和生命周期绑定。
 - \`runtime\`：Three.js 场景、灯光、环境、模型、材质和销毁逻辑。
 - \`config\`：编辑器导出的结构化场景配置。
-- \`assets\`：模型与贴图资源，可随项目一起部署。
-- \`styles\`：组件容器样式。
+- \`assets\`：模型、贴图和本地 Draco/KTX2 解码器。
+- \`scripts\`：Draco 几何压缩与 GLB 内嵌纹理 KTX2/UASTC 压缩。
 
-模型授权信息保留在 \`scene.config.js\` 的对象数据中。发布前请复核第三方模型的许可要求。
+独立 PNG/JPG 贴图保持源格式；KTX2 自动化针对 GLB 内嵌纹理。模型授权信息保留在场景配置中，发布前请复核许可要求。
 `
 
-const packageFor = (framework, sceneName) => JSON.stringify({
+const packageFor = (framework, sceneName, language, optimize) => JSON.stringify({
   name: `@frame/${slugify(sceneName, 'three-scene')}`,
   version: '1.0.0',
   private: true,
   type: 'module',
   sideEffects: ['**/*.css'],
+  scripts: optimize ? { 'optimize:assets': 'node scripts/optimize-assets.mjs' } : {},
   peerDependencies: framework === 'react' ? { react: '>=18', three: '>=0.180' } : { vue: '>=3.4', three: '>=0.180' },
+  devDependencies: {
+    ...(optimize ? { '@gltf-transform/cli': '^4.4.1' } : {}),
+    ...(language === 'ts' ? { typescript: '^5.8.0', '@types/three': '^0.180.0', ...(framework === 'react' ? { '@types/react': '^19.0.0' } : {}) } : {}),
+  },
 }, null, 2)
 
-export async function buildSceneProject({ framework, folderName, objects, settings, editor, includeAssets = true, includeReadme = true }) {
+export async function buildSceneProject({ framework, language = 'js', folderName, objects, settings, editor, includeAssets = true, includeReadme = true, optimizeDraco = false, optimizeKtx2 = false }) {
   const files = new Map()
   const exportedObjects = structuredClone(objects)
-  const assetCache = new Map()
-  const addAsset = async (source, path) => {
+  const sourceCache = new Map()
+  const contentCache = new Map()
+  const draco = includeAssets && optimizeDraco
+  const ktx2 = includeAssets && optimizeKtx2
+  const addAsset = async (source, folder, baseName, extension) => {
     if (!includeAssets || !source) return source
-    if (assetCache.has(source)) return assetCache.get(source)
-    const finalPath = `assets/${path}`
-    files.set(`src/${finalPath}`, await fetchAsset(source))
-    assetCache.set(source, finalPath)
+    if (sourceCache.has(source)) return sourceCache.get(source)
+    const blob = await fetchAsset(source)
+    const hash = await hashBytes(blob)
+    const contentKey = `${hash}.${extension}`
+    if (contentCache.has(contentKey)) {
+      const existing = contentCache.get(contentKey)
+      sourceCache.set(source, existing)
+      return existing
+    }
+    const finalPath = `assets/${folder}/${slugify(baseName)}-${hash.slice(0, 10)}.${extension}`
+    files.set(`src/${finalPath}`, blob)
+    sourceCache.set(source, finalPath)
+    contentCache.set(contentKey, finalPath)
     return finalPath
   }
 
@@ -343,29 +496,38 @@ export async function buildSceneProject({ framework, folderName, objects, settin
     const objectSlug = slugify(object.name, object.id)
     if (object.type === 'model' && object.modelSource) {
       const extension = extensionFrom(object.modelSource, object.name, 'glb')
-      object.modelSource = await addAsset(object.modelSource, `models/${objectSlug}.${extension}`)
+      object.modelSource = await addAsset(object.modelSource, 'models', objectSlug, extension)
     }
     object.textures = object.textures || {}
     for (const channel of TEXTURE_CHANNELS) {
       const texture = object.textures[channel]
       if (!texture?.data) continue
       const extension = extensionFrom(texture.data, texture.name, 'png')
-      texture.data = await addAsset(texture.data, `textures/${objectSlug}-${channel}.${extension}`)
+      texture.data = await addAsset(texture.data, 'textures', `${objectSlug}-${channel}`, extension)
     }
     if (object.map && !object.textures.baseColor?.data) {
       const extension = extensionFrom(object.map, object.mapName, 'png')
-      object.map = await addAsset(object.map, `textures/${objectSlug}-baseColor.${extension}`)
+      object.map = await addAsset(object.map, 'textures', `${objectSlug}-baseColor`, extension)
     }
   }
 
-  const config = { version: 1, name: folderName, exportedAt: new Date().toISOString(), settings, editor, objects: exportedObjects }
-  files.set('src/config/scene.config.js', `export const sceneConfig = ${JSON.stringify(config, null, 2)}\n`)
-  files.set('src/runtime/createThreeScene.js', sceneRuntime)
-  files.set(`src/components/ThreeScene.${framework === 'react' ? 'jsx' : 'vue'}`, framework === 'react' ? reactComponent : vueComponent)
+  const decoderFiles = [...(draco ? DRACO_DECODERS : []), ...(ktx2 ? KTX2_TRANSCODERS : [])]
+  for (const decoder of decoderFiles) files.set(`src/assets/decoders/${decoder}`, await fetchAsset(`/decoders/${decoder}`))
+
+  const moduleExtension = language === 'ts' ? 'ts' : 'js'
+  const componentExtension = framework === 'react' ? (language === 'ts' ? 'tsx' : 'jsx') : 'vue'
+  const config = { version: 2, name: folderName, exportedAt: new Date().toISOString(), build: { draco, ktx2 }, settings, editor, objects: exportedObjects }
+  files.set(`src/config/scene.config.${moduleExtension}`, `${language === 'ts' ? "import type { SceneConfig } from '../types'\n\n" : ''}export const sceneConfig${language === 'ts' ? ': SceneConfig' : ''} = ${JSON.stringify(config, null, 2)}\n`)
+  files.set(`src/runtime/createThreeScene.${moduleExtension}`, `${language === 'ts' ? '// @ts-nocheck -- generated Three.js runtime; public API is typed in types.ts.\n' : ''}${sceneRuntime}`)
+  files.set(`src/components/ThreeScene.${componentExtension}`, componentFor(framework, language))
   files.set('src/styles/three-scene.css', `.three-scene { width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: ${settings.background}; }\n.three-scene canvas { display: block; width: 100%; height: 100%; }\n`)
-  files.set('src/index.js', `export { ThreeScene } from './components/ThreeScene.${framework === 'react' ? 'jsx' : 'vue'}'\nexport { sceneConfig } from './config/scene.config.js'\n`)
-  files.set('package.json', packageFor(framework, folderName))
-  if (includeReadme) files.set('README.md', readmeFor(framework, folderName))
+  const componentImport = framework === 'vue' ? `./components/ThreeScene.${componentExtension}` : `./components/ThreeScene${language === 'ts' ? '' : '.jsx'}`
+  const configImport = `./config/scene.config${language === 'ts' ? '' : '.js'}`
+  files.set(`src/index.${moduleExtension}`, `export { ThreeScene } from '${componentImport}'\nexport { sceneConfig } from '${configImport}'\n${language === 'ts' ? "export type { SceneConfig, ThreeSceneProps, ThreeSceneRuntime } from './types'\n" : ''}`)
+  if (language === 'ts') files.set('src/types.ts', typesTemplate)
+  if (draco || ktx2) files.set('scripts/optimize-assets.mjs', optimizationScriptFor(draco, ktx2))
+  files.set('package.json', packageFor(framework, folderName, language, draco || ktx2))
+  if (includeReadme) files.set('README.md', readmeFor(framework, folderName, language, draco || ktx2))
   return files
 }
 
@@ -380,6 +542,29 @@ const writeFile = async (root, path, value) => {
   await writable.close()
 }
 
+const readJsonFile = async (root, path) => {
+  try {
+    const handle = await root.getFileHandle(path)
+    return JSON.parse(await (await handle.getFile()).text())
+  } catch { return null }
+}
+
+const removeFile = async (root, path) => {
+  const parts = path.split('/')
+  const fileName = parts.pop()
+  let directory = root
+  try {
+    for (const part of parts) directory = await directory.getDirectoryHandle(part)
+    await directory.removeEntry(fileName)
+  } catch { /* Already removed or no longer accessible. */ }
+}
+
+const createExportManifest = async (files) => {
+  const hashes = {}
+  for (const [path, value] of files) hashes[path] = await hashBytes(typeof value === 'string' ? value : value)
+  return { version: 1, generatedBy: 'FRAME Three Editor', generatedAt: new Date().toISOString(), files: hashes }
+}
+
 export async function chooseProjectDirectory(folderName) {
   if (!window.showDirectoryPicker) return null
   const parent = await window.showDirectoryPicker({ id: 'frame-project-export', mode: 'readwrite' })
@@ -387,23 +572,34 @@ export async function chooseProjectDirectory(folderName) {
 }
 
 export async function writeProjectDirectory(directory, files, onProgress) {
+  const previousManifest = await readJsonFile(directory, EXPORT_MANIFEST)
+  const nextManifest = await createExportManifest(files)
   let current = 0
+  let written = 0
+  let skipped = 0
   for (const [path, value] of files) {
-    await writeFile(directory, path, value)
+    if (previousManifest?.files?.[path] === nextManifest.files[path]) skipped += 1
+    else { await writeFile(directory, path, value); written += 1 }
     current += 1
     onProgress?.(current, files.size, path)
   }
+  const staleFiles = Object.keys(previousManifest?.files || {}).filter((path) => !nextManifest.files[path])
+  for (const path of staleFiles) await removeFile(directory, path)
+  await writeFile(directory, EXPORT_MANIFEST, JSON.stringify(nextManifest, null, 2) + '\n')
+  return { written, skipped, removed: staleFiles.length }
 }
 
 export async function downloadProjectZip(folderName, files, onProgress) {
   const { default: JSZip } = await import('jszip')
   const zip = new JSZip()
+  const manifest = await createExportManifest(files)
   let current = 0
   for (const [path, value] of files) {
     zip.file(`${slugify(folderName, 'three_scene')}/${path}`, value)
     current += 1
     onProgress?.(current, files.size, path)
   }
+  zip.file(`${slugify(folderName, 'three_scene')}/${EXPORT_MANIFEST}`, JSON.stringify(manifest, null, 2) + '\n')
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
