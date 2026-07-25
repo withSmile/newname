@@ -2,6 +2,8 @@ import React, { forwardRef, Suspense, useCallback, useEffect, useMemo, useRef, u
 import { Canvas, useThree } from '@react-three/fiber'
 import { Center, ContactShadows, Edges, GizmoHelper, GizmoViewport, Grid, OrbitControls, OrthographicCamera, PerspectiveCamera, Sky, TransformControls, useAnimations, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { Sky as ThreeSky } from 'three/addons/objects/Sky.js'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import {
   Box, BoxSelect, Camera, Check, ChevronDown, Circle, Copy, Download, Eye, EyeOff, FileJson, Focus, ImagePlus,
@@ -27,13 +29,13 @@ const MODEL_ASSETS = [
 ]
 
 const ENVIRONMENT_PRESETS = [
-  { id: 'studio', label: '影棚', colors: ['#25292d', '#fff2df'], values: { backgroundMode: 'color', background: '#25292d', ambient: 0.9, keyLightColor: '#fff2df', keyLightIntensity: 2.1, fillLightColor: '#79a7c7', fillLightIntensity: 12, rimLightColor: '#f08a62', rimLightIntensity: 2.2, exposure: 1, fogEnabled: false } },
-  { id: 'product', label: '产品', colors: ['#d6dadd', '#ffffff'], values: { backgroundMode: 'color', background: '#d6dadd', ambient: 1.15, keyLightColor: '#ffffff', keyLightIntensity: 2.8, fillLightColor: '#b6d5df', fillLightIntensity: 8, rimLightColor: '#ffffff', rimLightIntensity: 1.5, exposure: 1.05, fogEnabled: false } },
-  { id: 'sunset', label: '夕照', colors: ['#3a2927', '#ffb06b'], values: { backgroundMode: 'sky', background: '#3a2927', sunElevation: 4, sunAzimuth: 235, skyTurbidity: 12, skyRayleigh: 3.5, ambient: 0.4, keyLightColor: '#ffb06b', keyLightIntensity: 3.1, fillLightColor: '#6c80bb', fillLightIntensity: 9, rimLightColor: '#ff8059', rimLightIntensity: 2.8, exposure: 1.1, fogEnabled: true, fogColor: '#3a2927', fogNear: 10, fogFar: 30 } },
-  { id: 'night', label: '夜景', colors: ['#11161d', '#7fa6ff'], values: { backgroundMode: 'color', background: '#11161d', ambient: 0.28, keyLightColor: '#7fa6ff', keyLightIntensity: 2.4, fillLightColor: '#d45b86', fillLightIntensity: 7, rimLightColor: '#8c6cff', rimLightIntensity: 3.2, exposure: 0.9, fogEnabled: true, fogColor: '#11161d', fogNear: 8, fogFar: 26 } },
+  { id: 'studio', label: '影棚', colors: ['#25292d', '#fff2df'], values: { backgroundMode: 'color', background: '#25292d', environmentIntensity: 1.25, environmentRotation: 0, ambient: 0.45, keyLightColor: '#fff2df', keyLightIntensity: 2.1, fillLightColor: '#79a7c7', fillLightIntensity: 12, rimLightColor: '#f08a62', rimLightIntensity: 2.2, exposure: 1, fogEnabled: false } },
+  { id: 'product', label: '产品', colors: ['#d6dadd', '#ffffff'], values: { backgroundMode: 'color', background: '#d6dadd', environmentIntensity: 1.65, environmentRotation: 35, ambient: 0.55, keyLightColor: '#ffffff', keyLightIntensity: 2.8, fillLightColor: '#b6d5df', fillLightIntensity: 8, rimLightColor: '#ffffff', rimLightIntensity: 1.5, exposure: 1.05, fogEnabled: false } },
+  { id: 'sunset', label: '夕照', colors: ['#3a2927', '#ffb06b'], values: { backgroundMode: 'sky', background: '#3a2927', environmentIntensity: 1.1, environmentRotation: 0, sunElevation: 4, sunAzimuth: 235, skyTurbidity: 12, skyRayleigh: 3.5, ambient: 0.2, keyLightColor: '#ffb06b', keyLightIntensity: 3.1, fillLightColor: '#6c80bb', fillLightIntensity: 9, rimLightColor: '#ff8059', rimLightIntensity: 2.8, exposure: 1.1, fogEnabled: true, fogColor: '#3a2927', fogNear: 10, fogFar: 30 } },
+  { id: 'night', label: '夜景', colors: ['#11161d', '#7fa6ff'], values: { backgroundMode: 'color', background: '#11161d', environmentIntensity: 0.75, environmentRotation: 210, ambient: 0.12, keyLightColor: '#7fa6ff', keyLightIntensity: 2.4, fillLightColor: '#d45b86', fillLightIntensity: 7, rimLightColor: '#8c6cff', rimLightIntensity: 3.2, exposure: 0.9, fogEnabled: true, fogColor: '#11161d', fogNear: 8, fogFar: 26 } },
 ]
 
-const SCENE_SETTING_KEYS = ['environmentPreset', 'backgroundMode', 'background', 'skyTurbidity', 'skyRayleigh', 'skyMieCoefficient', 'skyMieDirectionalG', 'sunElevation', 'sunAzimuth', 'ambient', 'keyLightColor', 'keyLightIntensity', 'keyLightPosition', 'fillLightColor', 'fillLightIntensity', 'fillLightPosition', 'fillLightDistance', 'rimLightEnabled', 'rimLightColor', 'rimLightIntensity', 'rimLightPosition', 'rimLightAngle', 'hemisphereEnabled', 'hemisphereSkyColor', 'hemisphereGroundColor', 'hemisphereIntensity', 'exposure', 'fogEnabled', 'fogColor', 'fogNear', 'fogFar', 'gridColor', 'gridSectionColor', 'gridSize', 'cameraFov', 'shadowOpacity', 'shadowBlur', 'customLights']
+const SCENE_SETTING_KEYS = ['environmentPreset', 'backgroundMode', 'background', 'environmentIntensity', 'environmentRotation', 'skyTurbidity', 'skyRayleigh', 'skyMieCoefficient', 'skyMieDirectionalG', 'sunElevation', 'sunAzimuth', 'ambient', 'keyLightColor', 'keyLightIntensity', 'keyLightPosition', 'fillLightColor', 'fillLightIntensity', 'fillLightPosition', 'fillLightDistance', 'rimLightEnabled', 'rimLightColor', 'rimLightIntensity', 'rimLightPosition', 'rimLightAngle', 'hemisphereEnabled', 'hemisphereSkyColor', 'hemisphereGroundColor', 'hemisphereIntensity', 'exposure', 'fogEnabled', 'fogColor', 'fogNear', 'fogFar', 'gridColor', 'gridSectionColor', 'gridSize', 'cameraFov', 'shadowOpacity', 'shadowBlur', 'customLights']
 const readSceneSettings = () => { const state = useEditor.getState(); return Object.fromEntries(SCENE_SETTING_KEYS.map((key) => [key, state[key]])) }
 
 const WRAP_MODES = { repeat: THREE.RepeatWrapping, clamp: THREE.ClampToEdgeWrapping, mirror: THREE.MirroredRepeatWrapping }
@@ -114,6 +116,7 @@ function ObjectMaterial({ object, shading }) {
   }, [materialKey, gl, scene, camera, invalidate])
   return <meshStandardMaterial key={materialKey} ref={materialRef}
     color={object.color} roughness={object.roughness} metalness={object.metalness}
+    envMapIntensity={object.envMapIntensity ?? 1}
     map={baseMap} normalMap={normalMap} normalScale={normalScale}
     roughnessMap={roughnessMap} metalnessMap={metalnessMap}
     aoMap={aoMap} aoMapIntensity={object.aoIntensity ?? 1}
@@ -195,6 +198,60 @@ function EditableObject({ object }) {
   }} />}</>
 }
 
+function SceneEnvironment({ backgroundMode, sunPosition, skyTurbidity, skyRayleigh, skyMieCoefficient, skyMieDirectionalG }) {
+  const gl = useThree((state) => state.gl)
+  const scene = useThree((state) => state.scene)
+  const invalidate = useThree((state) => state.invalidate)
+  const environmentIntensity = useEditor((state) => state.environmentIntensity)
+  const environmentRotation = useEditor((state) => state.environmentRotation)
+  const textureRef = useRef(null)
+  const pmrem = useMemo(() => {
+    const generator = new THREE.PMREMGenerator(gl)
+    generator.compileCubemapShader()
+    return generator
+  }, [gl])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      let sourceScene
+      let cleanupSource = () => {}
+      if (backgroundMode === 'sky') {
+        sourceScene = new THREE.Scene()
+        const sky = new ThreeSky()
+        sky.scale.setScalar(100)
+        sky.material.uniforms.turbidity.value = skyTurbidity
+        sky.material.uniforms.rayleigh.value = skyRayleigh
+        sky.material.uniforms.mieCoefficient.value = skyMieCoefficient
+        sky.material.uniforms.mieDirectionalG.value = skyMieDirectionalG
+        sky.material.uniforms.sunPosition.value.copy(sunPosition)
+        sourceScene.add(sky)
+        cleanupSource = () => { sky.geometry.dispose(); sky.material.dispose() }
+      } else {
+        sourceScene = new RoomEnvironment()
+        cleanupSource = () => sourceScene.dispose()
+      }
+      const nextTexture = pmrem.fromScene(sourceScene, 0.04).texture
+      cleanupSource()
+      const previousTexture = textureRef.current
+      textureRef.current = nextTexture
+      scene.environment = nextTexture
+      previousTexture?.dispose()
+      invalidate()
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [backgroundMode, sunPosition, skyTurbidity, skyRayleigh, skyMieCoefficient, skyMieDirectionalG, pmrem, scene, invalidate])
+  useEffect(() => {
+    scene.environmentIntensity = environmentIntensity
+    scene.environmentRotation.set(0, THREE.MathUtils.degToRad(environmentRotation), 0)
+    invalidate()
+  }, [scene, environmentIntensity, environmentRotation, invalidate])
+  useEffect(() => () => {
+    if (scene.environment === textureRef.current) scene.environment = null
+    textureRef.current?.dispose()
+    pmrem.dispose()
+  }, [scene, pmrem])
+  return null
+}
+
 function Scene() {
   const objects = useEditor((s) => s.objects)
   const grid = useEditor((s) => s.grid)
@@ -242,12 +299,14 @@ function Scene() {
     const theta = THREE.MathUtils.degToRad(sunAzimuth)
     return new THREE.Vector3().setFromSphericalCoords(1, phi, theta)
   }, [sunElevation, sunAzimuth])
+  const keyLightDirection = useMemo(() => backgroundMode === 'sky' ? sunPosition.clone().multiplyScalar(10) : keyLightPosition, [backgroundMode, sunPosition, keyLightPosition])
   return (
     <>
       {backgroundMode === 'color' ? <color attach="background" args={[background]} /> : <Sky distance={450000} sunPosition={sunPosition} turbidity={skyTurbidity} rayleigh={skyRayleigh} mieCoefficient={skyMieCoefficient} mieDirectionalG={skyMieDirectionalG} />}
+      <SceneEnvironment backgroundMode={backgroundMode} sunPosition={sunPosition} skyTurbidity={skyTurbidity} skyRayleigh={skyRayleigh} skyMieCoefficient={skyMieCoefficient} skyMieDirectionalG={skyMieDirectionalG} />
       {fogEnabled && <fog attach="fog" args={[fogColor, fogNear, fogFar]} />}
       <ambientLight intensity={ambient} />
-      <directionalLight position={keyLightPosition} color={keyLightColor} intensity={keyLightIntensity} castShadow={shadows} shadow-mapSize={[2048, 2048]} />
+      <directionalLight position={keyLightDirection} color={keyLightColor} intensity={keyLightIntensity} castShadow={shadows} shadow-mapSize={[2048, 2048]} />
       <pointLight position={fillLightPosition} intensity={fillLightIntensity} color={fillLightColor} distance={fillLightDistance} />
       {rimLightEnabled && <spotLight position={rimLightPosition} color={rimLightColor} intensity={rimLightIntensity} angle={THREE.MathUtils.degToRad(rimLightAngle)} penumbra={0.7} distance={20} />}
       {hemisphereEnabled && <hemisphereLight args={[hemisphereSkyColor, hemisphereGroundColor, hemisphereIntensity]} />}
@@ -386,6 +445,7 @@ function Inspector() {
       <div className="property-row"><label>颜色</label><div className="color-control"><input type="color" value={object.color} onChange={(e) => updateObject(object.id, { color: e.target.value })} /><input value={object.color.toUpperCase()} readOnly /></div></div>
       <Slider label="粗糙度" value={object.roughness} onChange={(roughness) => updateObject(object.id, { roughness })} />
       <Slider label="金属度" value={object.metalness} onChange={(metalness) => updateObject(object.id, { metalness })} />
+      <RangeSetting label="环境反射" value={object.envMapIntensity ?? 1} min={0} max={3} step={0.05} onChange={(envMapIntensity) => updateObject(object.id, { envMapIntensity })} />
       <TextureControl object={object} updateObject={updateObject} />
     </section> : <section><h3><ChevronDown size={13} /> GLB 模型</h3><div className="model-source"><BoxSelect size={16} /><div><strong>{object.name}</strong><small>{object.animated ? '包含动画 · 自动播放第一段' : '静态模型 · 保留原始 PBR 材质'}</small>{object.attribution && <small>{object.attribution}</small>}</div></div></section>}
     <section><h3><ChevronDown size={13} /> 显示</h3><ToggleRow label="投射阴影" value={object.castShadow !== false} onChange={(castShadow) => updateObject(object.id, { castShadow })} /><ToggleRow label="接收阴影" value={object.receiveShadow !== false} onChange={(receiveShadow) => updateObject(object.id, { receiveShadow })} /></section>
@@ -469,12 +529,12 @@ function ToggleRow({ label, value, onChange }) { return <div className="toggle-r
 
 function SceneInspector() {
   const settings = useEditor()
-  const { backgroundMode, background, skyTurbidity, skyRayleigh, skyMieCoefficient, skyMieDirectionalG, sunElevation, sunAzimuth, ambient, keyLightColor, keyLightIntensity, keyLightPosition, fillLightColor, fillLightIntensity, fillLightPosition, fillLightDistance, rimLightEnabled, rimLightColor, rimLightIntensity, rimLightPosition, rimLightAngle, hemisphereEnabled, hemisphereSkyColor, hemisphereGroundColor, hemisphereIntensity, exposure, fogEnabled, fogColor, fogNear, fogFar, grid, gridColor, gridSectionColor, gridSize, shadows, shadowOpacity, shadowBlur, cameraFov, environmentPreset, updateScene, toggleGrid, toggleShadows } = settings
+  const { backgroundMode, background, environmentIntensity, environmentRotation, skyTurbidity, skyRayleigh, skyMieCoefficient, skyMieDirectionalG, sunElevation, sunAzimuth, ambient, keyLightColor, keyLightIntensity, keyLightPosition, fillLightColor, fillLightIntensity, fillLightPosition, fillLightDistance, rimLightEnabled, rimLightColor, rimLightIntensity, rimLightPosition, rimLightAngle, hemisphereEnabled, hemisphereSkyColor, hemisphereGroundColor, hemisphereIntensity, exposure, fogEnabled, fogColor, fogNear, fogFar, grid, gridColor, gridSectionColor, gridSize, shadows, shadowOpacity, shadowBlur, cameraFov, environmentPreset, updateScene, toggleGrid, toggleShadows } = settings
   const applyPreset = (preset) => updateScene({ environmentPreset: preset.id, ...preset.values })
   return <div className="scene-inspector">
     <div className="scene-summary"><div className="scene-orb"><Lightbulb size={18} /></div><div><strong>场景环境</strong><small>天空、大气、灯光与渲染</small></div></div>
     <section><h3><ChevronDown size={13} /> 环境预设</h3><div className="environment-presets">{ENVIRONMENT_PRESETS.map((preset) => <button key={preset.id} className={environmentPreset === preset.id ? 'active' : ''} onClick={() => applyPreset(preset)}><span><i style={{ background: preset.colors[0] }} /><i style={{ background: preset.colors[1] }} /></span><small>{preset.label}</small></button>)}</div></section>
-    <section><h3><ChevronDown size={13} /> 天空与世界</h3><div className="mode-segments"><button className={backgroundMode === 'color' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'color', environmentPreset: 'custom' })}>纯色</button><button className={backgroundMode === 'sky' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'sky', environmentPreset: 'custom' })}>程序化天空</button></div>{backgroundMode === 'color' ? <ColorSetting label="背景" value={background} onChange={(background) => updateScene({ background, environmentPreset: 'custom' })} /> : <><RangeSetting label="太阳高度" value={sunElevation} min={-5} max={90} step={1} digits={0} suffix="°" onChange={(sunElevation) => updateScene({ sunElevation, environmentPreset: 'custom' })} /><RangeSetting label="太阳方位" value={sunAzimuth} min={0} max={360} step={1} digits={0} suffix="°" onChange={(sunAzimuth) => updateScene({ sunAzimuth, environmentPreset: 'custom' })} /><RangeSetting label="浑浊度" value={skyTurbidity} min={0} max={20} step={0.1} onChange={(skyTurbidity) => updateScene({ skyTurbidity })} /><RangeSetting label="瑞利散射" value={skyRayleigh} min={0} max={4} step={0.05} onChange={(skyRayleigh) => updateScene({ skyRayleigh })} /><RangeSetting label="米氏系数" value={skyMieCoefficient} min={0} max={0.02} step={0.001} digits={3} onChange={(skyMieCoefficient) => updateScene({ skyMieCoefficient })} /><RangeSetting label="米氏方向" value={skyMieDirectionalG} min={0} max={1} step={0.01} onChange={(skyMieDirectionalG) => updateScene({ skyMieDirectionalG })} /></>}<RangeSetting label="曝光" value={exposure} min={0.2} max={2} step={0.05} onChange={(exposure) => updateScene({ exposure, environmentPreset: 'custom' })} /></section>
+    <section><h3><ChevronDown size={13} /> 天空与世界</h3><div className="mode-segments"><button className={backgroundMode === 'color' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'color', environmentPreset: 'custom' })}>影棚环境</button><button className={backgroundMode === 'sky' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'sky', environmentPreset: 'custom' })}>程序化天空</button></div>{backgroundMode === 'color' ? <ColorSetting label="背景" value={background} onChange={(background) => updateScene({ background, environmentPreset: 'custom' })} /> : <><RangeSetting label="太阳高度" value={sunElevation} min={-5} max={90} step={1} digits={0} suffix="°" onChange={(sunElevation) => updateScene({ sunElevation, environmentPreset: 'custom' })} /><RangeSetting label="太阳方位" value={sunAzimuth} min={0} max={360} step={1} digits={0} suffix="°" onChange={(sunAzimuth) => updateScene({ sunAzimuth, environmentPreset: 'custom' })} /><RangeSetting label="浑浊度" value={skyTurbidity} min={0} max={20} step={0.1} onChange={(skyTurbidity) => updateScene({ skyTurbidity })} /><RangeSetting label="瑞利散射" value={skyRayleigh} min={0} max={4} step={0.05} onChange={(skyRayleigh) => updateScene({ skyRayleigh })} /><RangeSetting label="米氏系数" value={skyMieCoefficient} min={0} max={0.02} step={0.001} digits={3} onChange={(skyMieCoefficient) => updateScene({ skyMieCoefficient })} /><RangeSetting label="米氏方向" value={skyMieDirectionalG} min={0} max={1} step={0.01} onChange={(skyMieDirectionalG) => updateScene({ skyMieDirectionalG })} /></>}<RangeSetting label="环境反射" value={environmentIntensity} min={0} max={3} step={0.05} onChange={(environmentIntensity) => updateScene({ environmentIntensity, environmentPreset: 'custom' })} /><RangeSetting label="环境旋转" value={environmentRotation} min={0} max={360} step={1} digits={0} suffix="°" onChange={(environmentRotation) => updateScene({ environmentRotation, environmentPreset: 'custom' })} /><RangeSetting label="曝光" value={exposure} min={0.2} max={2} step={0.05} onChange={(exposure) => updateScene({ exposure, environmentPreset: 'custom' })} /></section>
     <section><h3><ChevronDown size={13} /> 主光 · 方向光</h3><ColorSetting label="颜色" value={keyLightColor} onChange={(keyLightColor) => updateScene({ keyLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={keyLightIntensity} min={0} max={5} step={0.1} onChange={(keyLightIntensity) => updateScene({ keyLightIntensity, environmentPreset: 'custom' })} /><SceneVectorSetting label="位置" value={keyLightPosition} onChange={(keyLightPosition) => updateScene({ keyLightPosition })} /></section>
     <section><h3><ChevronDown size={13} /> 补光 · 点光</h3><ColorSetting label="颜色" value={fillLightColor} onChange={(fillLightColor) => updateScene({ fillLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={fillLightIntensity} min={0} max={20} step={0.5} onChange={(fillLightIntensity) => updateScene({ fillLightIntensity, environmentPreset: 'custom' })} /><RangeSetting label="距离" value={fillLightDistance} min={1} max={30} step={1} digits={0} onChange={(fillLightDistance) => updateScene({ fillLightDistance })} /><SceneVectorSetting label="位置" value={fillLightPosition} onChange={(fillLightPosition) => updateScene({ fillLightPosition })} /></section>
     <section><h3><ChevronDown size={13} /> 轮廓光 · 聚光</h3><ToggleRow label="启用轮廓光" value={rimLightEnabled} onChange={(rimLightEnabled) => updateScene({ rimLightEnabled })} />{rimLightEnabled && <><ColorSetting label="颜色" value={rimLightColor} onChange={(rimLightColor) => updateScene({ rimLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={rimLightIntensity} min={0} max={8} step={0.1} onChange={(rimLightIntensity) => updateScene({ rimLightIntensity })} /><RangeSetting label="锥角" value={rimLightAngle} min={5} max={75} step={1} digits={0} suffix="°" onChange={(rimLightAngle) => updateScene({ rimLightAngle })} /><SceneVectorSetting label="位置" value={rimLightPosition} onChange={(rimLightPosition) => updateScene({ rimLightPosition })} /></>}</section>
@@ -549,7 +609,12 @@ function FocusController() {
 function RendererSettings() {
   const { gl } = useThree()
   const exposure = useEditor((s) => s.exposure)
-  useEffect(() => { gl.toneMappingExposure = exposure }, [gl, exposure])
+  useEffect(() => {
+    gl.outputColorSpace = THREE.SRGBColorSpace
+    gl.toneMapping = THREE.ACESFilmicToneMapping
+    gl.toneMappingExposure = exposure
+    gl.shadowMap.type = THREE.PCFSoftShadowMap
+  }, [gl, exposure])
   return null
 }
 

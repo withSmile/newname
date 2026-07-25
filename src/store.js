@@ -2,7 +2,7 @@ import { create } from 'zustand'
 
 const seedObjects = [
   { id: 'cube-1', name: 'Hero Cube', type: 'box', position: [0, 0.75, 0], rotation: [0, 0.35, 0], scale: [1.5, 1.5, 1.5], color: '#e35d35', roughness: 0.32, metalness: 0.12, visible: true },
-  { id: 'sphere-1', name: 'Glass Sphere', type: 'sphere', position: [-2.4, 0.65, -0.8], rotation: [0, 0, 0], scale: [1.15, 1.15, 1.15], color: '#59a8b2', roughness: 0.18, metalness: 0.55, visible: true },
+  { id: 'sphere-1', name: 'Metal Sphere', type: 'sphere', position: [-2.4, 0.65, -0.8], rotation: [0, 0, 0], scale: [1.15, 1.15, 1.15], color: '#8fcbd2', roughness: 0.16, metalness: 1, envMapIntensity: 1.35, visible: true },
   { id: 'torus-1', name: 'Torus', type: 'torus', position: [2.2, 0.8, 0.2], rotation: [1.15, 0.15, 0.1], scale: [1.1, 1.1, 1.1], color: '#e7c75a', roughness: 0.42, metalness: 0.25, visible: true },
 ]
 
@@ -10,13 +10,15 @@ const sceneDefaults = {
   environmentPreset: 'studio',
   backgroundMode: 'color',
   background: '#25292d',
+  environmentIntensity: 1.25,
+  environmentRotation: 0,
   skyTurbidity: 8,
   skyRayleigh: 2.5,
   skyMieCoefficient: 0.005,
   skyMieDirectionalG: 0.8,
   sunElevation: 28,
   sunAzimuth: 135,
-  ambient: 0.9,
+  ambient: 0.45,
   keyLightColor: '#fff2df',
   keyLightIntensity: 2.1,
   keyLightPosition: [5, 8, 4],
