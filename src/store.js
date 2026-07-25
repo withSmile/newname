@@ -36,6 +36,23 @@ const sceneDefaults = {
   hemisphereGroundColor: '#33383b',
   hemisphereIntensity: 1.1,
   exposure: 1,
+  postProcessingEnabled: true,
+  postProcessingQuality: 'balanced',
+  bloomEnabled: false,
+  bloomIntensity: 0.65,
+  bloomThreshold: 0.82,
+  bloomSmoothing: 0.18,
+  depthOfFieldEnabled: false,
+  depthOfFieldFocusDistance: 0.02,
+  depthOfFieldFocalLength: 0.035,
+  depthOfFieldBokehScale: 2,
+  vignetteEnabled: true,
+  vignetteOffset: 0.22,
+  vignetteDarkness: 0.55,
+  chromaticAberrationEnabled: false,
+  chromaticAberrationOffset: 0.0015,
+  noiseEnabled: false,
+  noiseOpacity: 0.035,
   fogEnabled: false,
   fogColor: '#25292d',
   fogNear: 12,
@@ -43,7 +60,10 @@ const sceneDefaults = {
   gridColor: '#5d6266',
   gridSectionColor: '#858b8f',
   gridSize: 0.5,
+  sceneSize: 30,
   cameraFov: 42,
+  cameraNear: 0.1,
+  cameraFar: 1000,
   shadowOpacity: 0.45,
   shadowBlur: 2.5,
   customLights: [],
@@ -104,13 +124,14 @@ export const useEditor = create((set, get) => ({
   addObject: (type) => {
     const s = get()
     const id = `${type}-${Date.now()}`
-    const next = [...s.objects, { id, name: makeName(type, s.objects), type, position: [0, 0.6, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#7ca6d8', roughness: 0.4, metalness: 0.1, visible: true }]
+    const flat = type === 'plane'
+    const next = [...s.objects, { id, name: makeName(type, s.objects), type, position: [0, flat ? 0.02 : 0.6, 0], rotation: flat ? [-Math.PI / 2, 0, 0] : [0, 0, 0], scale: [1, 1, 1], color: '#7ca6d8', roughness: 0.4, metalness: 0.1, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, visible: true }]
     set({ objects: next, selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
   addModel: ({ name, source, attribution, animated }) => {
     const s = get()
     const id = `model-${Date.now()}`
-    const model = { id, name: name || 'Imported Model', type: 'model', modelSource: source, attribution, animated, position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#ffffff', roughness: 0.5, metalness: 0, visible: true }
+    const model = { id, name: name || 'Imported Model', type: 'model', modelSource: source, attribution, animated, position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#ffffff', roughness: 0.5, metalness: 0, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, visible: true }
     set({ objects: [...s.objects, model], selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
   deleteSelected: () => {

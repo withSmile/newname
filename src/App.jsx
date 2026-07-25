@@ -1,6 +1,8 @@
 import React, { forwardRef, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Center, ContactShadows, Edges, GizmoHelper, GizmoViewport, Grid, OrbitControls, OrthographicCamera, PerspectiveCamera, Sky, TransformControls, useAnimations, useGLTF } from '@react-three/drei'
+import { Bloom, ChromaticAberration, DepthOfField, EffectComposer, Noise, Vignette } from '@react-three/postprocessing'
+import { BlendFunction, KernelSize } from 'postprocessing'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { Sky as ThreeSky } from 'three/addons/objects/Sky.js'
@@ -12,14 +14,26 @@ import {
   Plus, Redo2, Rotate3D, Scaling, Search, Settings2, Shapes, Trash2, Undo2, Unlock, Upload, X,
 } from 'lucide-react'
 import { useEditor } from './store'
+import { useShallow } from 'zustand/react/shallow'
 import { ExportDialog } from './ExportDialog'
 
 const geometryFor = (type) => {
   const center = (geometry) => { geometry.computeBoundingBox(); geometry.center(); geometry.computeBoundingSphere(); if (geometry.attributes.uv && !geometry.attributes.uv1) geometry.setAttribute('uv1', geometry.attributes.uv.clone()) }
+  const tubePath = new THREE.CatmullRomCurve3([new THREE.Vector3(-0.8, 0, 0), new THREE.Vector3(-0.35, 0.5, 0), new THREE.Vector3(0.35, -0.5, 0), new THREE.Vector3(0.8, 0, 0)])
   if (type === 'sphere') return <sphereGeometry args={[0.7, 48, 32]} onUpdate={center} />
   if (type === 'torus') return <torusGeometry args={[0.65, 0.22, 24, 64]} onUpdate={center} />
   if (type === 'cylinder') return <cylinderGeometry args={[0.62, 0.62, 1.25, 40, 12]} onUpdate={center} />
   if (type === 'cone') return <coneGeometry args={[0.68, 1.35, 40, 12]} onUpdate={center} />
+  if (type === 'plane') return <planeGeometry args={[1.8, 1.8, 12, 12]} onUpdate={center} />
+  if (type === 'capsule') return <capsuleGeometry args={[0.42, 0.8, 8, 24]} onUpdate={center} />
+  if (type === 'ring') return <ringGeometry args={[0.38, 0.72, 48, 12]} onUpdate={center} />
+  if (type === 'tetrahedron') return <tetrahedronGeometry args={[0.9, 1]} onUpdate={center} />
+  if (type === 'octahedron') return <octahedronGeometry args={[0.9, 1]} onUpdate={center} />
+  if (type === 'dodecahedron') return <dodecahedronGeometry args={[0.82, 1]} onUpdate={center} />
+  if (type === 'icosahedron') return <icosahedronGeometry args={[0.86, 1]} onUpdate={center} />
+  if (type === 'pipe') return <primitive object={new THREE.TubeGeometry(tubePath, 32, 0.16, 16, false)} onUpdate={center} attach="geometry" />
+  if (type === 'torusKnot') return <torusKnotGeometry args={[0.52, 0.16, 96, 16, 2, 3]} onUpdate={center} />
+  if (type === 'lathe') return <primitive object={new THREE.LatheGeometry([new THREE.Vector2(0.08, -0.7), new THREE.Vector2(0.48, -0.55), new THREE.Vector2(0.32, 0), new THREE.Vector2(0.52, 0.55), new THREE.Vector2(0.12, 0.72)], 40)} onUpdate={center} attach="geometry" />
   return <boxGeometry args={[1, 1, 1, 16, 16, 16]} onUpdate={center} />
 }
 
@@ -37,7 +51,13 @@ const ENVIRONMENT_PRESETS = [
   { id: 'night', label: '夜景', colors: ['#11161d', '#7fa6ff'], values: { backgroundMode: 'color', background: '#11161d', environmentIntensity: 0.75, environmentRotation: 210, ambient: 0.12, keyLightColor: '#7fa6ff', keyLightIntensity: 2.4, fillLightColor: '#d45b86', fillLightIntensity: 7, rimLightColor: '#8c6cff', rimLightIntensity: 3.2, exposure: 0.9, fogEnabled: true, fogColor: '#11161d', fogNear: 8, fogFar: 26 } },
 ]
 
-const SCENE_SETTING_KEYS = ['environmentPreset', 'backgroundMode', 'background', 'environmentIntensity', 'environmentRotation', 'skyTurbidity', 'skyRayleigh', 'skyMieCoefficient', 'skyMieDirectionalG', 'sunElevation', 'sunAzimuth', 'ambient', 'keyLightColor', 'keyLightIntensity', 'keyLightPosition', 'fillLightColor', 'fillLightIntensity', 'fillLightPosition', 'fillLightDistance', 'rimLightEnabled', 'rimLightColor', 'rimLightIntensity', 'rimLightPosition', 'rimLightAngle', 'hemisphereEnabled', 'hemisphereSkyColor', 'hemisphereGroundColor', 'hemisphereIntensity', 'exposure', 'fogEnabled', 'fogColor', 'fogNear', 'fogFar', 'gridColor', 'gridSectionColor', 'gridSize', 'cameraFov', 'shadowOpacity', 'shadowBlur', 'customLights']
+const POST_PROCESSING_PRESETS = [
+  { id: 'clean', label: '清晰', values: { bloomEnabled: false, depthOfFieldEnabled: false, vignetteEnabled: false, chromaticAberrationEnabled: false, noiseEnabled: false } },
+  { id: 'cinematic', label: '电影', values: { bloomEnabled: true, bloomIntensity: 0.5, bloomThreshold: 0.78, depthOfFieldEnabled: true, depthOfFieldFocusDistance: 0.02, depthOfFieldFocalLength: 0.035, depthOfFieldBokehScale: 1.8, vignetteEnabled: true, vignetteOffset: 0.2, vignetteDarkness: 0.62, chromaticAberrationEnabled: false, noiseEnabled: true, noiseOpacity: 0.025 } },
+  { id: 'dream', label: '柔光', values: { bloomEnabled: true, bloomIntensity: 1.05, bloomThreshold: 0.58, bloomSmoothing: 0.3, depthOfFieldEnabled: false, vignetteEnabled: true, vignetteOffset: 0.3, vignetteDarkness: 0.42, chromaticAberrationEnabled: true, chromaticAberrationOffset: 0.0008, noiseEnabled: false } },
+]
+
+const SCENE_SETTING_KEYS = ['environmentPreset', 'backgroundMode', 'background', 'environmentIntensity', 'environmentRotation', 'skyTurbidity', 'skyRayleigh', 'skyMieCoefficient', 'skyMieDirectionalG', 'sunElevation', 'sunAzimuth', 'ambient', 'keyLightColor', 'keyLightIntensity', 'keyLightPosition', 'fillLightColor', 'fillLightIntensity', 'fillLightPosition', 'fillLightDistance', 'rimLightEnabled', 'rimLightColor', 'rimLightIntensity', 'rimLightPosition', 'rimLightAngle', 'hemisphereEnabled', 'hemisphereSkyColor', 'hemisphereGroundColor', 'hemisphereIntensity', 'exposure', 'postProcessingEnabled', 'postProcessingQuality', 'bloomEnabled', 'bloomIntensity', 'bloomThreshold', 'bloomSmoothing', 'depthOfFieldEnabled', 'depthOfFieldFocusDistance', 'depthOfFieldFocalLength', 'depthOfFieldBokehScale', 'vignetteEnabled', 'vignetteOffset', 'vignetteDarkness', 'chromaticAberrationEnabled', 'chromaticAberrationOffset', 'noiseEnabled', 'noiseOpacity', 'fogEnabled', 'fogColor', 'fogNear', 'fogFar', 'gridColor', 'gridSectionColor', 'gridSize', 'sceneSize', 'cameraFov', 'cameraNear', 'cameraFar', 'shadowOpacity', 'shadowBlur', 'customLights']
 const readSceneSettings = () => { const state = useEditor.getState(); return Object.fromEntries(SCENE_SETTING_KEYS.map((key) => [key, state[key]])) }
 
 const WRAP_MODES = { repeat: THREE.RepeatWrapping, clamp: THREE.ClampToEdgeWrapping, mirror: THREE.MirroredRepeatWrapping }
@@ -123,8 +143,9 @@ function ObjectMaterial({ object, shading }) {
     roughnessMap={roughnessMap} metalnessMap={metalnessMap}
     aoMap={aoMap} aoMapIntensity={object.aoIntensity ?? 1}
     emissiveMap={emissiveMap} emissive={emissiveMap ? object.emissiveColor || '#ffffff' : '#000000'} emissiveIntensity={object.emissiveIntensity ?? 1}
-    alphaMap={alphaMap} transparent={Boolean(alphaMap)} alphaTest={object.alphaTest ?? 0}
+    alphaMap={alphaMap} transparent={Boolean(alphaMap) || Boolean(object.transparent) || (object.opacity ?? 1) < 1} opacity={object.opacity ?? 1} alphaTest={object.alphaTest ?? 0} depthWrite={object.depthWrite !== false}
     displacementMap={displacementMap} displacementScale={object.displacementScale ?? 0.1}
+    side={object.doubleSided || ['plane', 'ring'].includes(object.type) ? THREE.DoubleSide : THREE.FrontSide}
     wireframe={shading === 'wireframe'}
   />
 }
@@ -133,7 +154,7 @@ const ImportedModel = forwardRef(function ImportedModel({ object }, ref) {
   const selectedId = useEditor((s) => s.selectedId)
   const setSelected = useEditor((s) => s.setSelected)
   const gltf = useGLTF(object.modelSource)
-  const model = useMemo(() => cloneSkeleton(gltf.scene), [gltf.scene])
+  const model = useMemo(() => { const cloned = cloneSkeleton(gltf.scene); cloned.traverse((child) => { if (child.isMesh && child.material) child.material = Array.isArray(child.material) ? child.material.map((material) => material.clone()) : child.material.clone() }); return cloned }, [gltf.scene])
   const animationRoot = useRef()
   const { actions, names } = useAnimations(gltf.animations, animationRoot)
   const normalizedScale = useMemo(() => {
@@ -141,7 +162,7 @@ const ImportedModel = forwardRef(function ImportedModel({ object }, ref) {
     const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3())
     return 1.8 / Math.max(size.x, size.y, size.z, 0.001)
   }, [model])
-  useEffect(() => { model.traverse((child) => { if (child.isMesh) { child.castShadow = object.castShadow !== false; child.receiveShadow = object.receiveShadow !== false } }) }, [model, object.castShadow, object.receiveShadow])
+  useEffect(() => { model.traverse((child) => { if (child.isMesh) { child.castShadow = object.castShadow !== false; child.receiveShadow = object.receiveShadow !== false; const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.filter(Boolean).forEach((material) => { material.transparent = Boolean(object.transparent || (object.opacity ?? 1) < 1); material.opacity = object.opacity ?? 1; material.alphaTest = object.alphaTest ?? 0; material.depthWrite = object.depthWrite !== false; material.side = object.doubleSided ? THREE.DoubleSide : THREE.FrontSide; material.needsUpdate = true }) } }) }, [model, object.castShadow, object.receiveShadow, object.transparent, object.opacity, object.alphaTest, object.depthWrite, object.doubleSided])
   useEffect(() => { const action = names.length ? actions[names[0]] : null; action?.reset().fadeIn(0.2).play(); return () => action?.fadeOut(0.15) }, [actions, names])
   return <group ref={ref} name={object.name} position={object.position} rotation={object.rotation} scale={object.scale} visible={object.visible} onClick={(e) => { e.stopPropagation(); setSelected(object.id) }}>
     <group ref={animationRoot} scale={normalizedScale}><Center><primitive object={model} /></Center></group>
@@ -291,7 +312,10 @@ function Scene() {
   const gridColor = useEditor((s) => s.gridColor)
   const gridSectionColor = useEditor((s) => s.gridSectionColor)
   const gridSize = useEditor((s) => s.gridSize)
+  const sceneSize = useEditor((s) => s.sceneSize)
   const cameraFov = useEditor((s) => s.cameraFov)
+  const cameraNear = useEditor((s) => s.cameraNear)
+  const cameraFar = useEditor((s) => s.cameraFar)
   const shadowOpacity = useEditor((s) => s.shadowOpacity)
   const shadowBlur = useEditor((s) => s.shadowBlur)
   const projection = useEditor((s) => s.projection)
@@ -316,13 +340,34 @@ function Scene() {
       <group onPointerMissed={() => setSelected(null)}>
         {objects.map((object) => <Suspense key={object.id} fallback={<mesh position={object.position}><boxGeometry args={[0.5, 0.5, 0.5]} /><meshBasicMaterial color="#687076" wireframe /></mesh>}><EditableObject object={object} /></Suspense>)}
       </group>
-      {grid && <Grid position={[0, 0, 0]} args={[30, 30]} cellSize={gridSize} cellThickness={0.55} cellColor={gridColor} sectionSize={gridSize * 5} sectionThickness={1} sectionColor={gridSectionColor} fadeDistance={18} infiniteGrid />}
-      <ContactShadows position={[0, 0.01, 0]} opacity={shadows ? shadowOpacity : 0} scale={15} blur={shadowBlur} far={6} />
-      {projection === 'perspective' ? <PerspectiveCamera makeDefault position={[6.5, 4.8, 7.5]} fov={cameraFov} /> : <OrthographicCamera makeDefault position={[6.5, 4.8, 7.5]} zoom={72} />}
-      <OrbitControls makeDefault target={[0, 0.7, 0]} minDistance={2} maxDistance={22} />
+      {grid && <Grid position={[0, 0, 0]} args={[sceneSize, sceneSize]} cellSize={gridSize} cellThickness={0.55} cellColor={gridColor} sectionSize={gridSize * 5} sectionThickness={1} sectionColor={gridSectionColor} fadeDistance={Math.max(8, sceneSize * 0.6)} infiniteGrid />}
+      <ContactShadows position={[0, 0.01, 0]} opacity={shadows ? shadowOpacity : 0} scale={Math.min(sceneSize, 30) * 0.5} blur={shadowBlur} far={Math.max(6, sceneSize * 0.2)} />
+      {projection === 'perspective' ? <PerspectiveCamera makeDefault position={[6.5, 4.8, 7.5]} fov={cameraFov} near={cameraNear} far={cameraFar} /> : <OrthographicCamera makeDefault position={[6.5, 4.8, 7.5]} zoom={72} near={cameraNear} far={cameraFar} />}
+      <OrbitControls makeDefault target={[0, 0.7, 0]} minDistance={Math.max(cameraNear * 2, 0.2)} maxDistance={Math.min(cameraFar * 0.8, Math.max(22, sceneSize * 1.5))} />
       <GizmoHelper alignment="bottom-right" margin={[76, 58]}><GizmoViewport axisColors={['#e35d35', '#6cac68', '#5c85c7']} labelColor="white" /></GizmoHelper>
     </>
   )
+}
+
+function PostProcessing() {
+  const settings = useEditor(useShallow((s) => ({
+    enabled: s.postProcessingEnabled, quality: s.postProcessingQuality,
+    bloomEnabled: s.bloomEnabled, bloomIntensity: s.bloomIntensity, bloomThreshold: s.bloomThreshold, bloomSmoothing: s.bloomSmoothing,
+    depthOfFieldEnabled: s.depthOfFieldEnabled, focusDistance: s.depthOfFieldFocusDistance, focalLength: s.depthOfFieldFocalLength, bokehScale: s.depthOfFieldBokehScale,
+    vignetteEnabled: s.vignetteEnabled, vignetteOffset: s.vignetteOffset, vignetteDarkness: s.vignetteDarkness,
+    chromaticAberrationEnabled: s.chromaticAberrationEnabled, chromaticAberrationOffset: s.chromaticAberrationOffset,
+    noiseEnabled: s.noiseEnabled, noiseOpacity: s.noiseOpacity,
+  })))
+  const chromaticOffset = useMemo(() => new THREE.Vector2(settings.chromaticAberrationOffset, settings.chromaticAberrationOffset), [settings.chromaticAberrationOffset])
+  if (!settings.enabled) return null
+  const multisampling = settings.quality === 'high' ? 8 : settings.quality === 'balanced' ? 4 : 0
+  return <EffectComposer multisampling={multisampling} enableNormalPass={settings.depthOfFieldEnabled}>
+    {settings.bloomEnabled && <Bloom intensity={settings.bloomIntensity} luminanceThreshold={settings.bloomThreshold} luminanceSmoothing={settings.bloomSmoothing} mipmapBlur kernelSize={KernelSize.LARGE} />}
+    {settings.depthOfFieldEnabled && <DepthOfField focusDistance={settings.focusDistance} focalLength={settings.focalLength} bokehScale={settings.bokehScale} />}
+    {settings.chromaticAberrationEnabled && <ChromaticAberration offset={chromaticOffset} radialModulation modulationOffset={0.5} />}
+    {settings.noiseEnabled && <Noise opacity={settings.noiseOpacity} blendFunction={BlendFunction.SOFT_LIGHT} />}
+    {settings.vignetteEnabled && <Vignette eskil={false} offset={settings.vignetteOffset} darkness={settings.vignetteDarkness} />}
+  </EffectComposer>
 }
 
 function IconButton({ icon: Icon, label, active, disabled, onClick }) {
@@ -357,8 +402,13 @@ function Toolbar() {
 function AddMenu({ close }) {
   const addObject = useEditor((s) => s.addObject)
   const addModel = useEditor((s) => s.addModel)
-  const items = [['box', Box, '立方体'], ['sphere', Circle, '球体'], ['cylinder', Shapes, '圆柱体'], ['cone', Lightbulb, '圆锥体'], ['torus', Circle, '圆环']]
-  return <div className="add-menu">{items.map(([type, Icon, label]) => <button key={type} onClick={() => { addObject(type); close() }}><Icon size={15} />{label}</button>)}<i /><button onClick={() => { addModel(MODEL_ASSETS[3]); close() }}><BoxSelect size={15} />测试 GLB 模型</button></div>
+  const groups = [
+    ['基本体', [['box', Box, '立方体'], ['sphere', Circle, '球体'], ['cylinder', Shapes, '圆柱体'], ['cone', Lightbulb, '圆锥体'], ['plane', BoxSelect, '平面'], ['capsule', Shapes, '胶囊']]],
+    ['曲面与管道', [['torus', Circle, '圆环'], ['ring', Circle, '圆环面'], ['pipe', Shapes, '管道'], ['torusKnot', Circle, '环面结']]],
+    ['多面体', [['tetrahedron', Shapes, '四面体'], ['octahedron', Shapes, '八面体'], ['dodecahedron', Shapes, '十二面体'], ['icosahedron', Shapes, '二十面体']]],
+    ['参数化', [['lathe', Shapes, '车削体']]],
+  ]
+  return <div className="add-menu">{groups.map(([group, items]) => <React.Fragment key={group}><div className="add-menu-label">{group}</div>{items.map(([type, Icon, label]) => <button key={type} onClick={() => { addObject(type); close() }}><Icon size={15} />{label}</button>)}</React.Fragment>)}<i /><button onClick={() => { addModel(MODEL_ASSETS[3]); close() }}><BoxSelect size={15} />测试 GLB 模型</button></div>
 }
 
 function Header({ notify, showHelp, showExport }) {
@@ -480,11 +530,17 @@ function Inspector({ onCollapse }) {
       <Slider label="粗糙度" value={object.roughness} onChange={(roughness) => updateObject(object.id, { roughness })} />
       <Slider label="金属度" value={object.metalness} onChange={(metalness) => updateObject(object.id, { metalness })} />
       <RangeSetting label="环境反射" value={object.envMapIntensity ?? 1} min={0} max={3} step={0.05} onChange={(envMapIntensity) => updateObject(object.id, { envMapIntensity })} />
+      <MaterialTransparencyControls object={object} updateObject={updateObject} />
       <TextureControl object={object} updateObject={updateObject} />
-    </CollapsibleSection> : <CollapsibleSection><h3><ChevronDown size={13} /> GLB 模型</h3><div className="model-source"><BoxSelect size={16} /><div><strong>{object.name}</strong><small>{object.animated ? '包含动画 · 自动播放第一段' : '静态模型 · 保留原始 PBR 材质'}</small>{object.attribution && <small>{object.attribution}</small>}</div></div></CollapsibleSection>}
+    </CollapsibleSection> : <CollapsibleSection><h3><ChevronDown size={13} /> GLB 模型</h3><div className="model-source"><BoxSelect size={16} /><div><strong>{object.name}</strong><small>{object.animated ? '包含动画 · 自动播放第一段' : '静态模型 · 保留原始 PBR 材质'}</small>{object.attribution && <small>{object.attribution}</small>}</div></div><MaterialTransparencyControls object={object} updateObject={updateObject} /></CollapsibleSection>}
     <CollapsibleSection><h3><ChevronDown size={13} /> 显示</h3><ToggleRow label="投射阴影" value={object.castShadow !== false} onChange={(castShadow) => updateObject(object.id, { castShadow })} /><ToggleRow label="接收阴影" value={object.receiveShadow !== false} onChange={(receiveShadow) => updateObject(object.id, { receiveShadow })} /></CollapsibleSection>
     </>}
   </aside>
+}
+
+function MaterialTransparencyControls({ object, updateObject }) {
+  const patch = (values) => updateObject(object.id, values)
+  return <div className="material-transparency"><div className="texture-section-head"><span>透明与表面</span><span className="material-hint">Alpha / Depth</span></div><ToggleRow label="启用透明" value={Boolean(object.transparent)} onChange={(transparent) => patch({ transparent })} /><RangeSetting label="不透明度" value={object.opacity ?? 1} min={0} max={1} step={0.01} onChange={(opacity) => patch({ opacity, transparent: opacity < 1 ? true : object.transparent })} /><RangeSetting label="Alpha 裁切" value={object.alphaTest ?? 0} min={0} max={1} step={0.01} onChange={(alphaTest) => patch({ alphaTest })} /><ToggleRow label="深度写入" value={object.depthWrite !== false} onChange={(depthWrite) => patch({ depthWrite })} /><ToggleRow label="双面渲染" value={Boolean(object.doubleSided)} onChange={(doubleSided) => patch({ doubleSided })} /></div>
 }
 
 function Slider({ label, value, onChange }) { return <div className="property-row slider-row"><label>{label}</label><input type="range" min="0" max="1" step="0.01" value={value} onChange={(e) => onChange(Number(e.target.value))} /><span>{value.toFixed(2)}</span></div> }
@@ -563,7 +619,7 @@ function ToggleRow({ label, value, onChange }) { return <div className="toggle-r
 
 function SceneInspector() {
   const settings = useEditor()
-  const { backgroundMode, background, environmentIntensity, environmentRotation, skyTurbidity, skyRayleigh, skyMieCoefficient, skyMieDirectionalG, sunElevation, sunAzimuth, ambient, keyLightColor, keyLightIntensity, keyLightPosition, fillLightColor, fillLightIntensity, fillLightPosition, fillLightDistance, rimLightEnabled, rimLightColor, rimLightIntensity, rimLightPosition, rimLightAngle, hemisphereEnabled, hemisphereSkyColor, hemisphereGroundColor, hemisphereIntensity, exposure, fogEnabled, fogColor, fogNear, fogFar, grid, gridColor, gridSectionColor, gridSize, shadows, shadowOpacity, shadowBlur, cameraFov, environmentPreset, updateScene, toggleGrid, toggleShadows } = settings
+  const { backgroundMode, background, environmentIntensity, environmentRotation, skyTurbidity, skyRayleigh, skyMieCoefficient, skyMieDirectionalG, sunElevation, sunAzimuth, ambient, keyLightColor, keyLightIntensity, keyLightPosition, fillLightColor, fillLightIntensity, fillLightPosition, fillLightDistance, rimLightEnabled, rimLightColor, rimLightIntensity, rimLightPosition, rimLightAngle, hemisphereEnabled, hemisphereSkyColor, hemisphereGroundColor, hemisphereIntensity, exposure, fogEnabled, fogColor, fogNear, fogFar, grid, gridColor, gridSectionColor, gridSize, sceneSize, cameraFov, cameraNear, cameraFar, shadows, shadowOpacity, shadowBlur, environmentPreset, updateScene, toggleGrid, toggleShadows } = settings
   const applyPreset = (preset) => updateScene({ environmentPreset: preset.id, ...preset.values })
   return <div className="scene-inspector">
     <div className="scene-summary"><div className="scene-orb"><Lightbulb size={18} /></div><div><strong>场景环境</strong><small>天空、大气、灯光与渲染</small></div></div>
@@ -574,11 +630,51 @@ function SceneInspector() {
     <CollapsibleSection><h3><ChevronDown size={13} /> 轮廓光 · 聚光</h3><ToggleRow label="启用轮廓光" value={rimLightEnabled} onChange={(rimLightEnabled) => updateScene({ rimLightEnabled })} />{rimLightEnabled && <><ColorSetting label="颜色" value={rimLightColor} onChange={(rimLightColor) => updateScene({ rimLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={rimLightIntensity} min={0} max={8} step={0.1} onChange={(rimLightIntensity) => updateScene({ rimLightIntensity })} /><RangeSetting label="锥角" value={rimLightAngle} min={5} max={75} step={1} digits={0} suffix="°" onChange={(rimLightAngle) => updateScene({ rimLightAngle })} /><SceneVectorSetting label="位置" value={rimLightPosition} onChange={(rimLightPosition) => updateScene({ rimLightPosition })} /></>}</CollapsibleSection>
     <CollapsibleSection><h3><ChevronDown size={13} /> 天空光 · 半球光</h3><ToggleRow label="启用天空光" value={hemisphereEnabled} onChange={(hemisphereEnabled) => updateScene({ hemisphereEnabled })} />{hemisphereEnabled && <><ColorSetting label="天空颜色" value={hemisphereSkyColor} onChange={(hemisphereSkyColor) => updateScene({ hemisphereSkyColor })} /><ColorSetting label="地面颜色" value={hemisphereGroundColor} onChange={(hemisphereGroundColor) => updateScene({ hemisphereGroundColor })} /><RangeSetting label="强度" value={hemisphereIntensity} min={0} max={3} step={0.05} onChange={(hemisphereIntensity) => updateScene({ hemisphereIntensity })} /></>}<RangeSetting label="环境光" value={ambient} min={0} max={2} step={0.05} onChange={(ambient) => updateScene({ ambient, environmentPreset: 'custom' })} /></CollapsibleSection>
     <CustomLightsEditor />
+    <PostProcessingInspector settings={settings} />
     <CollapsibleSection><h3><ChevronDown size={13} /> 雾效</h3><ToggleRow label="启用雾效" value={fogEnabled} onChange={(fogEnabled) => updateScene({ fogEnabled, environmentPreset: 'custom' })} />{fogEnabled && <><ColorSetting label="雾颜色" value={fogColor} onChange={(fogColor) => updateScene({ fogColor, environmentPreset: 'custom' })} /><NumberSetting label="起始 / 结束" values={[fogNear, fogFar]} onChange={([fogNear, fogFar]) => updateScene({ fogNear, fogFar })} /></>}</CollapsibleSection>
     <CollapsibleSection><h3><ChevronDown size={13} /> 阴影</h3><ToggleRow label="实时阴影" value={shadows} onChange={toggleShadows} />{shadows && <><RangeSetting label="接触阴影" value={shadowOpacity} min={0} max={1} step={0.05} onChange={(shadowOpacity) => updateScene({ shadowOpacity })} /><RangeSetting label="柔化" value={shadowBlur} min={0.5} max={6} step={0.1} onChange={(shadowBlur) => updateScene({ shadowBlur })} /></>}</CollapsibleSection>
-    <CollapsibleSection><h3><ChevronDown size={13} /> 视口辅助</h3><ToggleRow label="显示网格" value={grid} onChange={toggleGrid} />{grid && <><ColorSetting label="细网格" value={gridColor} onChange={(gridColor) => updateScene({ gridColor })} /><ColorSetting label="主网格" value={gridSectionColor} onChange={(gridSectionColor) => updateScene({ gridSectionColor })} /><RangeSetting label="网格间距" value={gridSize} min={0.1} max={2} step={0.1} onChange={(gridSize) => updateScene({ gridSize })} /></>}<RangeSetting label="相机视角" value={cameraFov} min={20} max={80} step={1} digits={0} suffix="°" onChange={(cameraFov) => updateScene({ cameraFov })} /></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 场景与相机</h3><RangeSetting label="场景范围" value={sceneSize} min={5} max={120} step={1} digits={0} suffix=" u" onChange={(sceneSize) => updateScene({ sceneSize })} /><RangeSetting label="相机视角" value={cameraFov} min={20} max={120} step={1} digits={0} suffix="°" onChange={(cameraFov) => updateScene({ cameraFov })} /><RangeSetting label="近裁面" value={cameraNear} min={0.01} max={5} step={0.01} digits={2} onChange={(cameraNear) => updateScene({ cameraNear: Math.min(cameraNear, cameraFar - 0.01) })} /><RangeSetting label="远裁面" value={cameraFar} min={10} max={5000} step={10} digits={0} onChange={(cameraFar) => updateScene({ cameraFar: Math.max(cameraFar, cameraNear + 0.01) })} /></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 视口辅助</h3><ToggleRow label="显示网格" value={grid} onChange={toggleGrid} />{grid && <><ColorSetting label="细网格" value={gridColor} onChange={(gridColor) => updateScene({ gridColor })} /><ColorSetting label="主网格" value={gridSectionColor} onChange={(gridSectionColor) => updateScene({ gridSectionColor })} /><RangeSetting label="网格间距" value={gridSize} min={0.1} max={2} step={0.1} onChange={(gridSize) => updateScene({ gridSize })} /></>}</CollapsibleSection>
     <CollapsibleSection><h3><ChevronDown size={13} /> 渲染信息</h3><div className="metric-grid"><div><span>{useEditor.getState().objects.length}</span><small>对象</small></div><div><span>WebGL 2</span><small>渲染器</small></div></div></CollapsibleSection>
   </div>
+}
+
+function PostProcessingInspector({ settings }) {
+  const { updateScene } = settings
+  const activeCount = ['bloomEnabled', 'depthOfFieldEnabled', 'vignetteEnabled', 'chromaticAberrationEnabled', 'noiseEnabled'].filter((key) => settings[key]).length
+  const applyPreset = (preset) => updateScene({ postProcessingEnabled: true, ...preset.values })
+  return <CollapsibleSection className="post-processing-section">
+    <h3><ChevronDown size={13} /> 后期处理 <span>{activeCount}</span></h3>
+    <ToggleRow label="启用效果栈" value={settings.postProcessingEnabled} onChange={(postProcessingEnabled) => updateScene({ postProcessingEnabled })} />
+    {settings.postProcessingEnabled && <>
+      <div className="post-presets">{POST_PROCESSING_PRESETS.map((preset) => <button key={preset.id} onClick={() => applyPreset(preset)}>{preset.label}</button>)}</div>
+      <div className="mode-segments quality-segments"><button className={settings.postProcessingQuality === 'performance' ? 'active' : ''} onClick={() => updateScene({ postProcessingQuality: 'performance' })}>性能</button><button className={settings.postProcessingQuality === 'balanced' ? 'active' : ''} onClick={() => updateScene({ postProcessingQuality: 'balanced' })}>均衡</button><button className={settings.postProcessingQuality === 'high' ? 'active' : ''} onClick={() => updateScene({ postProcessingQuality: 'high' })}>高质量</button></div>
+      <EffectControls label="泛光 Bloom" enabled={settings.bloomEnabled} onToggle={(bloomEnabled) => updateScene({ bloomEnabled })}>
+        <RangeSetting label="强度" value={settings.bloomIntensity} min={0} max={3} step={0.05} onChange={(bloomIntensity) => updateScene({ bloomIntensity })} />
+        <RangeSetting label="阈值" value={settings.bloomThreshold} min={0} max={1} step={0.01} onChange={(bloomThreshold) => updateScene({ bloomThreshold })} />
+        <RangeSetting label="柔和" value={settings.bloomSmoothing} min={0} max={1} step={0.01} onChange={(bloomSmoothing) => updateScene({ bloomSmoothing })} />
+      </EffectControls>
+      <EffectControls label="景深 DOF" enabled={settings.depthOfFieldEnabled} onToggle={(depthOfFieldEnabled) => updateScene({ depthOfFieldEnabled })}>
+        <RangeSetting label="焦点距离" value={settings.depthOfFieldFocusDistance} min={0} max={0.15} step={0.001} digits={3} onChange={(depthOfFieldFocusDistance) => updateScene({ depthOfFieldFocusDistance })} />
+        <RangeSetting label="焦距" value={settings.depthOfFieldFocalLength} min={0.005} max={0.12} step={0.001} digits={3} onChange={(depthOfFieldFocalLength) => updateScene({ depthOfFieldFocalLength })} />
+        <RangeSetting label="散景" value={settings.depthOfFieldBokehScale} min={0} max={8} step={0.1} onChange={(depthOfFieldBokehScale) => updateScene({ depthOfFieldBokehScale })} />
+      </EffectControls>
+      <EffectControls label="暗角 Vignette" enabled={settings.vignetteEnabled} onToggle={(vignetteEnabled) => updateScene({ vignetteEnabled })}>
+        <RangeSetting label="范围" value={settings.vignetteOffset} min={0} max={1} step={0.01} onChange={(vignetteOffset) => updateScene({ vignetteOffset })} />
+        <RangeSetting label="深度" value={settings.vignetteDarkness} min={0} max={1} step={0.01} onChange={(vignetteDarkness) => updateScene({ vignetteDarkness })} />
+      </EffectControls>
+      <EffectControls label="色差 Chromatic" enabled={settings.chromaticAberrationEnabled} onToggle={(chromaticAberrationEnabled) => updateScene({ chromaticAberrationEnabled })}>
+        <RangeSetting label="偏移" value={settings.chromaticAberrationOffset} min={0} max={0.01} step={0.0001} digits={4} onChange={(chromaticAberrationOffset) => updateScene({ chromaticAberrationOffset })} />
+      </EffectControls>
+      <EffectControls label="胶片颗粒 Noise" enabled={settings.noiseEnabled} onToggle={(noiseEnabled) => updateScene({ noiseEnabled })}>
+        <RangeSetting label="不透明度" value={settings.noiseOpacity} min={0} max={0.25} step={0.005} digits={3} onChange={(noiseOpacity) => updateScene({ noiseOpacity })} />
+      </EffectControls>
+    </>}
+  </CollapsibleSection>
+}
+
+function EffectControls({ label, enabled, onToggle, children }) {
+  return <div className={`effect-control ${enabled ? 'enabled' : ''}`}><ToggleRow label={label} value={enabled} onChange={onToggle} />{enabled && <div className="effect-settings">{children}</div>}</div>
 }
 
 const CUSTOM_LIGHT_TYPES = [
@@ -662,7 +758,7 @@ function Viewport({ leftPanelOpen, rightPanelOpen, openLeftPanel, openRightPanel
     <div className="viewport-label"><button onClick={() => setProjection(projection === 'perspective' ? 'orthographic' : 'perspective')}><Camera size={12} />{projection === 'perspective' ? '透视' : '正交'}</button><select value={shading} onChange={(e) => setShading(e.target.value)}><option value="solid">实体</option><option value="wireframe">线框</option></select></div>
     <div className="viewport-options"><IconButton icon={Grid3X3} label="网格" active={grid} onClick={toggleGrid} /><IconButton icon={Lightbulb} label="阴影" active={shadows} onClick={toggleShadows} /><IconButton icon={Focus} label="聚焦对象 (F)" onClick={() => window.dispatchEvent(new Event('frame-focus'))} /></div>
     <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, preserveDrawingBuffer: true, toneMapping: THREE.ACESFilmicToneMapping }}>
-      <Scene /><FocusController /><RendererSettings />
+      <Scene /><FocusController /><RendererSettings /><PostProcessing />
     </Canvas>
     <div className="viewport-hint">左键选择 · 右键旋转 · 滚轮缩放</div>
     <div className="viewport-info">{selected ? `${selected.name} · ${selected.type}` : '未选择对象'}</div>

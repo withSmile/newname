@@ -67,15 +67,27 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { Sky } from 'three/addons/objects/Sky.js'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
+import { BlendFunction, BloomEffect, ChromaticAberrationEffect, DepthOfFieldEffect, EffectComposer, EffectPass, NoiseEffect, RenderPass, VignetteEffect } from 'postprocessing'
 
 const wrapModes = { repeat: THREE.RepeatWrapping, clamp: THREE.ClampToEdgeWrapping, mirror: THREE.MirroredRepeatWrapping }
 
 function createGeometry(type) {
+  const tubePath = new THREE.CatmullRomCurve3([new THREE.Vector3(-0.8, 0, 0), new THREE.Vector3(-0.35, 0.5, 0), new THREE.Vector3(0.35, -0.5, 0), new THREE.Vector3(0.8, 0, 0)])
   const geometries = {
     sphere: () => new THREE.SphereGeometry(0.7, 48, 32),
     torus: () => new THREE.TorusGeometry(0.65, 0.22, 24, 64),
     cylinder: () => new THREE.CylinderGeometry(0.62, 0.62, 1.25, 40, 12),
     cone: () => new THREE.ConeGeometry(0.68, 1.35, 40, 12),
+    plane: () => new THREE.PlaneGeometry(1.8, 1.8, 12, 12),
+    capsule: () => new THREE.CapsuleGeometry(0.42, 0.8, 8, 24),
+    ring: () => new THREE.RingGeometry(0.38, 0.72, 48, 12),
+    tetrahedron: () => new THREE.TetrahedronGeometry(0.9, 1),
+    octahedron: () => new THREE.OctahedronGeometry(0.9, 1),
+    dodecahedron: () => new THREE.DodecahedronGeometry(0.82, 1),
+    icosahedron: () => new THREE.IcosahedronGeometry(0.86, 1),
+    pipe: () => new THREE.TubeGeometry(tubePath, 32, 0.16, 16, false),
+    torusKnot: () => new THREE.TorusKnotGeometry(0.52, 0.16, 96, 16, 2, 3),
+    lathe: () => new THREE.LatheGeometry([new THREE.Vector2(0.08, -0.7), new THREE.Vector2(0.48, -0.55), new THREE.Vector2(0.32, 0), new THREE.Vector2(0.52, 0.55), new THREE.Vector2(0.12, 0.72)], 40),
   }
   const geometry = (geometries[type] || (() => new THREE.BoxGeometry(1, 1, 1, 16, 16, 16)))()
   geometry.center()
@@ -115,8 +127,9 @@ async function createMaterial(object, textureLoader, assetBaseUrl) {
     normalScale: new THREE.Vector2(object.normalScale ?? 1, object.normalScale ?? 1), roughnessMap, metalnessMap,
     aoMap, aoMapIntensity: object.aoIntensity ?? 1, emissiveMap,
     emissive: emissiveMap ? object.emissiveColor || '#ffffff' : '#000000', emissiveIntensity: object.emissiveIntensity ?? 1,
-    alphaMap, transparent: Boolean(alphaMap), alphaTest: object.alphaTest ?? 0,
+    alphaMap, transparent: Boolean(alphaMap) || Boolean(object.transparent) || (object.opacity ?? 1) < 1, opacity: object.opacity ?? 1, alphaTest: object.alphaTest ?? 0, depthWrite: object.depthWrite !== false, side: object.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
     displacementMap, displacementScale: object.displacementScale ?? 0.1,
+    side: object.doubleSided || ['plane', 'ring'].includes(object.type) ? THREE.DoubleSide : THREE.FrontSide,
   })
 }
 
@@ -177,7 +190,7 @@ export async function createThreeScene(container, config, options = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace
   container.appendChild(renderer.domElement)
 
-  const camera = new THREE.PerspectiveCamera(settings.cameraFov || 42, 1, 0.1, 1000)
+  const camera = new THREE.PerspectiveCamera(settings.cameraFov || 42, 1, settings.cameraNear || 0.1, settings.cameraFar || 1000)
   camera.position.set(6.5, 4.8, 7.5)
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.target.set(0, 0.7, 0)
@@ -255,16 +268,34 @@ export async function createThreeScene(container, config, options = {}) {
 
   const grid = options.grid ?? config.editor?.grid
   if (grid) {
-    const helper = new THREE.GridHelper(30, 60, settings.gridSectionColor, settings.gridColor)
+    const sceneSize = settings.sceneSize || 30
+    const helper = new THREE.GridHelper(sceneSize, Math.max(2, Math.round(sceneSize / (settings.gridSize || 0.5))), settings.gridSectionColor, settings.gridColor)
     helper.material.transparent = true
     helper.material.opacity = 0.55
     scene.add(helper)
+  }
+
+  let composer = null
+  if (settings.postProcessingEnabled) {
+    const effects = []
+    if (settings.bloomEnabled) effects.push(new BloomEffect({ intensity: settings.bloomIntensity, luminanceThreshold: settings.bloomThreshold, luminanceSmoothing: settings.bloomSmoothing, mipmapBlur: true }))
+    if (settings.depthOfFieldEnabled) effects.push(new DepthOfFieldEffect(camera, { focusDistance: settings.depthOfFieldFocusDistance, focalLength: settings.depthOfFieldFocalLength, bokehScale: settings.depthOfFieldBokehScale }))
+    if (settings.chromaticAberrationEnabled) effects.push(new ChromaticAberrationEffect({ offset: new THREE.Vector2(settings.chromaticAberrationOffset, settings.chromaticAberrationOffset), radialModulation: true, modulationOffset: 0.5 }))
+    if (settings.noiseEnabled) effects.push(new NoiseEffect({ blendFunction: BlendFunction.SOFT_LIGHT, opacity: settings.noiseOpacity }))
+    if (settings.vignetteEnabled) effects.push(new VignetteEffect({ eskil: false, offset: settings.vignetteOffset, darkness: settings.vignetteDarkness }))
+    if (effects.length) {
+      const multisampling = settings.postProcessingQuality === 'high' ? 8 : settings.postProcessingQuality === 'balanced' ? 4 : 0
+      composer = new EffectComposer(renderer, { multisampling })
+      composer.addPass(new RenderPass(scene, camera))
+      composer.addPass(new EffectPass(camera, ...effects))
+    }
   }
 
   const resize = () => {
     const width = Math.max(container.clientWidth, 1)
     const height = Math.max(container.clientHeight, 1)
     renderer.setSize(width, height, false)
+    composer?.setSize(width, height)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
   }
@@ -278,7 +309,8 @@ export async function createThreeScene(container, config, options = {}) {
     const delta = clock.getDelta()
     mixers.forEach((mixer) => mixer.update(delta))
     controls.update()
-    renderer.render(scene, camera)
+    if (composer) composer.render(delta)
+    else renderer.render(scene, camera)
   }
   render()
 
@@ -288,6 +320,7 @@ export async function createThreeScene(container, config, options = {}) {
       cancelAnimationFrame(frame)
       observer.disconnect()
       controls.dispose()
+      composer?.dispose()
       dracoLoader?.dispose()
       ktx2Loader?.dispose()
       scene.traverse((child) => {
@@ -460,7 +493,7 @@ const packageFor = (framework, sceneName, language, optimize) => JSON.stringify(
   type: 'module',
   sideEffects: ['**/*.css'],
   scripts: optimize ? { 'optimize:assets': 'node scripts/optimize-assets.mjs' } : {},
-  peerDependencies: framework === 'react' ? { react: '>=18', three: '>=0.180' } : { vue: '>=3.4', three: '>=0.180' },
+  peerDependencies: framework === 'react' ? { react: '>=18', three: '>=0.180', postprocessing: '>=6.37' } : { vue: '>=3.4', three: '>=0.180', postprocessing: '>=6.37' },
   devDependencies: {
     ...(optimize ? { '@gltf-transform/cli': '^4.4.1' } : {}),
     ...(language === 'ts' ? { typescript: '^5.8.0', '@types/three': '^0.180.0', ...(framework === 'react' ? { '@types/react': '^19.0.0' } : {}) } : {}),
