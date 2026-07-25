@@ -12,6 +12,7 @@ import {
   Plus, Redo2, Rotate3D, Scaling, Search, Settings2, Shapes, Trash2, Undo2, Unlock, Upload, X,
 } from 'lucide-react'
 import { useEditor } from './store'
+import { ExportDialog } from './ExportDialog'
 
 const geometryFor = (type) => {
   const center = (geometry) => { geometry.computeBoundingBox(); geometry.center(); geometry.computeBoundingSphere(); if (geometry.attributes.uv && !geometry.attributes.uv1) geometry.setAttribute('uv1', geometry.attributes.uv.clone()) }
@@ -360,7 +361,7 @@ function AddMenu({ close }) {
   return <div className="add-menu">{items.map(([type, Icon, label]) => <button key={type} onClick={() => { addObject(type); close() }}><Icon size={15} />{label}</button>)}<i /><button onClick={() => { addModel(MODEL_ASSETS[3]); close() }}><BoxSelect size={15} />测试 GLB 模型</button></div>
 }
 
-function Header({ notify, showHelp }) {
+function Header({ notify, showHelp, showExport }) {
   const [open, setOpen] = useState(false)
   const [fileOpen, setFileOpen] = useState(false)
   const fileRef = useRef()
@@ -386,7 +387,7 @@ function Header({ notify, showHelp }) {
       <div className="menu-wrap"><button onClick={() => setFileOpen(!fileOpen)}>文件</button>{fileOpen && <div className="file-menu">
         <button onClick={() => fileRef.current?.click()}><Upload size={14} />导入场景 <kbd>JSON</kbd></button>
         <button onClick={() => modelRef.current?.click()}><BoxSelect size={14} />导入模型 <kbd>GLB</kbd></button>
-        <button onClick={exportScene}><FileJson size={14} />导出场景 <kbd>Ctrl S</kbd></button>
+        <button onClick={exportScene}><FileJson size={14} />导出场景 JSON <kbd>JSON</kbd></button>
         <button onClick={capture}><ImageDown size={14} />视口截图 <kbd>PNG</kbd></button>
         <i />
         <button className="danger" onClick={() => { resetScene(); setFileOpen(false); notify('已恢复示例场景') }}><Trash2 size={14} />重置场景</button>
@@ -397,7 +398,7 @@ function Header({ notify, showHelp }) {
     <div className="project-title"><span className="status-dot" /> 未命名场景 <span className="save-state">已保存</span></div>
     <div className="header-actions">
       <div className="add-wrap"><button className="add-button" onClick={() => setOpen(!open)}><Plus size={15} /> 添加对象 <ChevronDown size={13} /></button>{open && <AddMenu close={() => setOpen(false)} />}</div>
-      <button className="export-button" onClick={exportScene}><Download size={15} /> 导出</button>
+      <button className="export-button" onClick={showExport}><Download size={15} /> 导出项目</button>
       <IconButton icon={HelpCircle} label="快捷键帮助" onClick={showHelp} />
     </div>
   </header>
@@ -671,6 +672,7 @@ function Viewport({ leftPanelOpen, rightPanelOpen, openLeftPanel, openRightPanel
 function App() {
   const [toast, setToast] = useState('')
   const [help, setHelp] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => localStorage.getItem('frame-left-panel') !== 'closed')
   const [rightPanelOpen, setRightPanelOpen] = useState(() => localStorage.getItem('frame-right-panel') !== 'closed')
   const { setMode, deleteSelected, duplicateSelected, undo, redo } = useEditor()
@@ -717,7 +719,7 @@ function App() {
   useEffect(() => { localStorage.setItem('frame-left-panel', leftPanelOpen ? 'open' : 'closed') }, [leftPanelOpen])
   useEffect(() => { localStorage.setItem('frame-right-panel', rightPanelOpen ? 'open' : 'closed') }, [rightPanelOpen])
   const workspaceClass = `workspace ${leftPanelOpen ? '' : 'left-panel-collapsed'} ${rightPanelOpen ? '' : 'right-panel-collapsed'}`
-  return <div className="app-shell"><Header notify={notify} showHelp={() => setHelp(true)} /><div className={workspaceClass}>{leftPanelOpen && <SceneTree onCollapse={() => setLeftPanelOpen(false)} />}<Viewport leftPanelOpen={leftPanelOpen} rightPanelOpen={rightPanelOpen} openLeftPanel={() => setLeftPanelOpen(true)} openRightPanel={() => setRightPanelOpen(true)} />{rightPanelOpen && <Inspector onCollapse={() => setRightPanelOpen(false)} />}</div><footer><span><i /> WebGL 2.0</span><span>对象 {objects.length}</span><span>自动保存</span><span className="footer-right">FRAME 0.2.0</span></footer>{toast && <div className="toast"><Check size={15} />{toast}</div>}{help && <div className="modal-backdrop" onMouseDown={() => setHelp(false)}><div className="shortcut-modal" onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><strong>快捷键</strong><small>在视口中快速工作</small></div><IconButton icon={X} label="关闭" onClick={() => setHelp(false)} /></div><div className="shortcut-grid"><span>移动对象</span><kbd>W</kbd><span>旋转对象</span><kbd>E</kbd><span>缩放对象</span><kbd>R</kbd><span>聚焦选择</span><kbd>F</kbd><span>复制对象</span><kbd>Ctrl D</kbd><span>删除对象</span><kbd>Delete</kbd><span>撤销 / 重做</span><kbd>Ctrl Z / Shift Z</kbd><span>保存场景</span><kbd>Ctrl S</kbd></div></div></div>}</div>
+  return <div className="app-shell"><Header notify={notify} showHelp={() => setHelp(true)} showExport={() => setExportOpen(true)} /><div className={workspaceClass}>{leftPanelOpen && <SceneTree onCollapse={() => setLeftPanelOpen(false)} />}<Viewport leftPanelOpen={leftPanelOpen} rightPanelOpen={rightPanelOpen} openLeftPanel={() => setLeftPanelOpen(true)} openRightPanel={() => setRightPanelOpen(true)} />{rightPanelOpen && <Inspector onCollapse={() => setRightPanelOpen(false)} />}</div><footer><span><i /> WebGL 2.0</span><span>对象 {objects.length}</span><span>自动保存</span><span className="footer-right">FRAME 0.2.0</span></footer>{toast && <div className="toast"><Check size={15} />{toast}</div>}{exportOpen && <ExportDialog objects={objects} settings={readSceneSettings()} editor={{ grid: useEditor.getState().grid, shadows: useEditor.getState().shadows }} notify={notify} onClose={() => setExportOpen(false)} />}{help && <div className="modal-backdrop" onMouseDown={() => setHelp(false)}><div className="shortcut-modal" onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><strong>快捷键</strong><small>在视口中快速工作</small></div><IconButton icon={X} label="关闭" onClick={() => setHelp(false)} /></div><div className="shortcut-grid"><span>移动对象</span><kbd>W</kbd><span>旋转对象</span><kbd>E</kbd><span>缩放对象</span><kbd>R</kbd><span>聚焦选择</span><kbd>F</kbd><span>复制对象</span><kbd>Ctrl D</kbd><span>删除对象</span><kbd>Delete</kbd><span>撤销 / 重做</span><kbd>Ctrl Z / Shift Z</kbd><span>导出项目</span><kbd>Ctrl S</kbd></div></div></div>}</div>
 }
 
 export default App
