@@ -8,6 +8,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import {
   Box, BoxSelect, Camera, Check, ChevronDown, ChevronsDown, ChevronsUp, Circle, Copy, Download, Eye, EyeOff, FileJson, Focus, ImagePlus,
   Grid3X3, HelpCircle, ImageDown, Lightbulb, Lock, Magnet, Menu, MousePointer2, Move3D,
+  PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Plus, Redo2, Rotate3D, Scaling, Search, Settings2, Shapes, Trash2, Undo2, Unlock, Upload, X,
 } from 'lucide-react'
 import { useEditor } from './store'
@@ -402,13 +403,13 @@ function Header({ notify, showHelp }) {
   </header>
 }
 
-function SceneTree() {
+function SceneTree({ onCollapse }) {
   const [query, setQuery] = useState('')
   const [assetTab, setAssetTab] = useState('全部')
   const { objects, selectedId, setSelected, updateObject, addObject, addModel } = useEditor()
   const filtered = objects.filter((o) => o.name.toLowerCase().includes(query.toLowerCase()))
   return <aside className="left-panel panel">
-    <div className="panel-heading"><span>场景</span><IconButton icon={Plus} label="添加立方体" onClick={() => addObject('box')} /></div>
+    <div className="panel-heading"><span>场景</span><div className="panel-heading-actions"><IconButton icon={Plus} label="添加立方体" onClick={() => addObject('box')} /><IconButton icon={PanelLeftClose} label="收起左侧栏" onClick={onCollapse} /></div></div>
     <div className="tree-search"><Search size={13} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索对象" />{query && <X size={12} onClick={() => setQuery('')} />}</div>
     <div className="tree-root"><ChevronDown size={13} /><BoxSelect size={14} /><span>场景集合</span><small>{objects.length}</small></div>
     <div className="tree-list">{filtered.map((o) => <button key={o.id} className={`tree-item ${selectedId === o.id ? 'selected' : ''}`} onClick={() => setSelected(o.id)}>
@@ -449,7 +450,7 @@ function CollapsibleSection({ children, className = '', defaultOpen = true }) {
   return <section className={`collapsible-section ${open ? 'expanded' : 'collapsed'} ${className}`}>{sectionHeader}{open && nodes.slice(1)}</section>
 }
 
-function Inspector() {
+function Inspector({ onCollapse }) {
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('panel') === 'scene' ? 'scene' : 'object')
   const [sectionsExpanded, setSectionsExpanded] = useState(true)
   const { objects, selectedId, updateObject } = useEditor()
@@ -463,7 +464,7 @@ function Inspector() {
     window.dispatchEvent(new CustomEvent('frame-inspector-sections', { detail: sectionsExpanded }))
   }, [tab])
   return <aside className="right-panel panel">
-    <div className="panel-heading"><span>检查器</span><IconButton icon={sectionsExpanded ? ChevronsUp : ChevronsDown} label={sectionsExpanded ? '全部收起' : '全部展开'} onClick={toggleSections} /></div>
+    <div className="panel-heading"><span>检查器</span><div className="panel-heading-actions"><IconButton icon={sectionsExpanded ? ChevronsUp : ChevronsDown} label={sectionsExpanded ? '全部收起' : '全部展开'} onClick={toggleSections} /><IconButton icon={PanelRightClose} label="收起右侧栏" onClick={onCollapse} /></div></div>
     <div className="inspector-tabs"><button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>对象</button><button className={tab === 'scene' ? 'active' : ''} onClick={() => setTab('scene')}>场景</button></div>
     {tab === 'scene' ? <SceneInspector /> : !object ? <div className="no-selection"><MousePointer2 size={24} /><span>选择一个对象</span></div> : <>
     <div className="object-title"><div className="object-icon"><Box size={16} /></div><div><input value={object.name} onChange={(e) => updateObject(object.id, { name: e.target.value }, false)} /><small>{object.type.toUpperCase()} / {object.id.slice(-6)}</small></div></div>
@@ -650,10 +651,12 @@ function RendererSettings() {
   return null
 }
 
-function Viewport() {
+function Viewport({ leftPanelOpen, rightPanelOpen, openLeftPanel, openRightPanel }) {
   const { grid, shadows, toggleGrid, toggleShadows, projection, setProjection, shading, setShading, objects, selectedId } = useEditor()
   const selected = objects.find((o) => o.id === selectedId)
   return <main className="viewport">
+    {!leftPanelOpen && <button className="side-panel-reveal side-panel-reveal-left" title="展开左侧栏" aria-label="展开左侧栏" onClick={openLeftPanel}><PanelLeftOpen size={17} /></button>}
+    {!rightPanelOpen && <button className="side-panel-reveal side-panel-reveal-right" title="展开右侧栏" aria-label="展开右侧栏" onClick={openRightPanel}><PanelRightOpen size={17} /></button>}
     <Toolbar />
     <div className="viewport-label"><button onClick={() => setProjection(projection === 'perspective' ? 'orthographic' : 'perspective')}><Camera size={12} />{projection === 'perspective' ? '透视' : '正交'}</button><select value={shading} onChange={(e) => setShading(e.target.value)}><option value="solid">实体</option><option value="wireframe">线框</option></select></div>
     <div className="viewport-options"><IconButton icon={Grid3X3} label="网格" active={grid} onClick={toggleGrid} /><IconButton icon={Lightbulb} label="阴影" active={shadows} onClick={toggleShadows} /><IconButton icon={Focus} label="聚焦对象 (F)" onClick={() => window.dispatchEvent(new Event('frame-focus'))} /></div>
@@ -668,6 +671,8 @@ function Viewport() {
 function App() {
   const [toast, setToast] = useState('')
   const [help, setHelp] = useState(false)
+  const [leftPanelOpen, setLeftPanelOpen] = useState(() => localStorage.getItem('frame-left-panel') !== 'closed')
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => localStorage.getItem('frame-right-panel') !== 'closed')
   const { setMode, deleteSelected, duplicateSelected, undo, redo } = useEditor()
   const notify = (message) => { setToast(message); window.clearTimeout(window.__frameToast); window.__frameToast = window.setTimeout(() => setToast(''), 2200) }
   useEffect(() => {
@@ -709,7 +714,10 @@ function App() {
     if (params.get('section') === 'lights') window.setTimeout(() => document.querySelector('.custom-lights-section')?.scrollIntoView({ block: 'start' }), 300)
   }, [])
   useEffect(() => { const timer = setTimeout(() => { try { localStorage.setItem('frame-scene', JSON.stringify({ version: 2, objects, settings: JSON.parse(sceneSettingsJson) })) } catch { /* Large textures can exceed the browser storage quota. */ } }, 400); return () => clearTimeout(timer) }, [objects, sceneSettingsJson])
-  return <div className="app-shell"><Header notify={notify} showHelp={() => setHelp(true)} /><div className="workspace"><SceneTree /><Viewport /><Inspector /></div><footer><span><i /> WebGL 2.0</span><span>对象 {objects.length}</span><span>自动保存</span><span className="footer-right">FRAME 0.2.0</span></footer>{toast && <div className="toast"><Check size={15} />{toast}</div>}{help && <div className="modal-backdrop" onMouseDown={() => setHelp(false)}><div className="shortcut-modal" onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><strong>快捷键</strong><small>在视口中快速工作</small></div><IconButton icon={X} label="关闭" onClick={() => setHelp(false)} /></div><div className="shortcut-grid"><span>移动对象</span><kbd>W</kbd><span>旋转对象</span><kbd>E</kbd><span>缩放对象</span><kbd>R</kbd><span>聚焦选择</span><kbd>F</kbd><span>复制对象</span><kbd>Ctrl D</kbd><span>删除对象</span><kbd>Delete</kbd><span>撤销 / 重做</span><kbd>Ctrl Z / Shift Z</kbd><span>保存场景</span><kbd>Ctrl S</kbd></div></div></div>}</div>
+  useEffect(() => { localStorage.setItem('frame-left-panel', leftPanelOpen ? 'open' : 'closed') }, [leftPanelOpen])
+  useEffect(() => { localStorage.setItem('frame-right-panel', rightPanelOpen ? 'open' : 'closed') }, [rightPanelOpen])
+  const workspaceClass = `workspace ${leftPanelOpen ? '' : 'left-panel-collapsed'} ${rightPanelOpen ? '' : 'right-panel-collapsed'}`
+  return <div className="app-shell"><Header notify={notify} showHelp={() => setHelp(true)} /><div className={workspaceClass}>{leftPanelOpen && <SceneTree onCollapse={() => setLeftPanelOpen(false)} />}<Viewport leftPanelOpen={leftPanelOpen} rightPanelOpen={rightPanelOpen} openLeftPanel={() => setLeftPanelOpen(true)} openRightPanel={() => setRightPanelOpen(true)} />{rightPanelOpen && <Inspector onCollapse={() => setRightPanelOpen(false)} />}</div><footer><span><i /> WebGL 2.0</span><span>对象 {objects.length}</span><span>自动保存</span><span className="footer-right">FRAME 0.2.0</span></footer>{toast && <div className="toast"><Check size={15} />{toast}</div>}{help && <div className="modal-backdrop" onMouseDown={() => setHelp(false)}><div className="shortcut-modal" onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><strong>快捷键</strong><small>在视口中快速工作</small></div><IconButton icon={X} label="关闭" onClick={() => setHelp(false)} /></div><div className="shortcut-grid"><span>移动对象</span><kbd>W</kbd><span>旋转对象</span><kbd>E</kbd><span>缩放对象</span><kbd>R</kbd><span>聚焦选择</span><kbd>F</kbd><span>复制对象</span><kbd>Ctrl D</kbd><span>删除对象</span><kbd>Delete</kbd><span>撤销 / 重做</span><kbd>Ctrl Z / Shift Z</kbd><span>保存场景</span><kbd>Ctrl S</kbd></div></div></div>}</div>
 }
 
 export default App
