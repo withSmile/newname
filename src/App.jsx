@@ -6,8 +6,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { Sky as ThreeSky } from 'three/addons/objects/Sky.js'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import {
-  Box, BoxSelect, Camera, Check, ChevronDown, Circle, Copy, Download, Eye, EyeOff, FileJson, Focus, ImagePlus,
-  Grid3X3, HelpCircle, ImageDown, Lightbulb, Lock, Magnet, Menu, MousePointer2, Move3D, PanelLeftClose,
+  Box, BoxSelect, Camera, Check, ChevronDown, ChevronsDown, ChevronsUp, Circle, Copy, Download, Eye, EyeOff, FileJson, Focus, ImagePlus,
+  Grid3X3, HelpCircle, ImageDown, Lightbulb, Lock, Magnet, Menu, MousePointer2, Move3D,
   Plus, Redo2, Rotate3D, Scaling, Search, Settings2, Shapes, Trash2, Undo2, Unlock, Upload, X,
 } from 'lucide-react'
 import { useEditor } from './store'
@@ -426,29 +426,61 @@ function VectorInput({ label, value, onChange }) {
   return <div className="property-row vector-row"><label>{label}</label><div className="vector-inputs">{axes.map((axis, i) => <div key={axis}><span className={`axis axis-${axis.toLowerCase()}`}>{axis}</span><input type="number" step="0.1" value={Number(value[i]).toFixed(2)} onChange={(e) => { const next = [...value]; next[i] = Number(e.target.value); onChange(next) }} /></div>)}</div></div>
 }
 
+function CollapsibleSection({ children, className = '', defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const nodes = React.Children.toArray(children)
+  const header = nodes[0]
+  useEffect(() => {
+    const setAll = (event) => setOpen(Boolean(event.detail))
+    window.addEventListener('frame-inspector-sections', setAll)
+    return () => window.removeEventListener('frame-inspector-sections', setAll)
+  }, [])
+  const toggle = (event) => {
+    if (event.target.closest('button, input, select, a')) return
+    setOpen((value) => !value)
+  }
+  const handleKey = (event) => {
+    if (event.target.closest('button, input, select, a')) return
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setOpen((value) => !value) }
+  }
+  const sectionHeader = React.isValidElement(header) ? React.cloneElement(header, {
+    role: 'button', tabIndex: 0, 'aria-expanded': open, onClick: toggle, onKeyDown: handleKey,
+  }) : header
+  return <section className={`collapsible-section ${open ? 'expanded' : 'collapsed'} ${className}`}>{sectionHeader}{open && nodes.slice(1)}</section>
+}
+
 function Inspector() {
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('panel') === 'scene' ? 'scene' : 'object')
+  const [sectionsExpanded, setSectionsExpanded] = useState(true)
   const { objects, selectedId, updateObject } = useEditor()
   const object = objects.find((o) => o.id === selectedId)
+  const toggleSections = () => {
+    const next = !sectionsExpanded
+    setSectionsExpanded(next)
+    window.dispatchEvent(new CustomEvent('frame-inspector-sections', { detail: next }))
+  }
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('frame-inspector-sections', { detail: sectionsExpanded }))
+  }, [tab])
   return <aside className="right-panel panel">
-    <div className="panel-heading"><span>检查器</span><PanelLeftClose size={15} /></div>
+    <div className="panel-heading"><span>检查器</span><IconButton icon={sectionsExpanded ? ChevronsUp : ChevronsDown} label={sectionsExpanded ? '全部收起' : '全部展开'} onClick={toggleSections} /></div>
     <div className="inspector-tabs"><button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>对象</button><button className={tab === 'scene' ? 'active' : ''} onClick={() => setTab('scene')}>场景</button></div>
     {tab === 'scene' ? <SceneInspector /> : !object ? <div className="no-selection"><MousePointer2 size={24} /><span>选择一个对象</span></div> : <>
     <div className="object-title"><div className="object-icon"><Box size={16} /></div><div><input value={object.name} onChange={(e) => updateObject(object.id, { name: e.target.value }, false)} /><small>{object.type.toUpperCase()} / {object.id.slice(-6)}</small></div></div>
-    <section><h3><ChevronDown size={13} /> 变换</h3>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 变换</h3>
       <VectorInput label="位置" value={object.position} onChange={(position) => updateObject(object.id, { position })} />
       <VectorInput label="旋转" value={object.rotation} onChange={(rotation) => updateObject(object.id, { rotation })} />
       <VectorInput label="缩放" value={object.scale} onChange={(scale) => updateObject(object.id, { scale })} />
-    </section>
-    <section><h3><ChevronDown size={13} /> 几何体</h3><div className="property-row"><label>类型</label><div className="readout">{object.type}</div></div></section>
-    {object.type !== 'model' ? <section><h3><ChevronDown size={13} /> 材质</h3>
+    </CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 几何体</h3><div className="property-row"><label>类型</label><div className="readout">{object.type}</div></div></CollapsibleSection>
+    {object.type !== 'model' ? <CollapsibleSection><h3><ChevronDown size={13} /> 材质</h3>
       <div className="property-row"><label>颜色</label><div className="color-control"><input type="color" value={object.color} onChange={(e) => updateObject(object.id, { color: e.target.value })} /><input value={object.color.toUpperCase()} readOnly /></div></div>
       <Slider label="粗糙度" value={object.roughness} onChange={(roughness) => updateObject(object.id, { roughness })} />
       <Slider label="金属度" value={object.metalness} onChange={(metalness) => updateObject(object.id, { metalness })} />
       <RangeSetting label="环境反射" value={object.envMapIntensity ?? 1} min={0} max={3} step={0.05} onChange={(envMapIntensity) => updateObject(object.id, { envMapIntensity })} />
       <TextureControl object={object} updateObject={updateObject} />
-    </section> : <section><h3><ChevronDown size={13} /> GLB 模型</h3><div className="model-source"><BoxSelect size={16} /><div><strong>{object.name}</strong><small>{object.animated ? '包含动画 · 自动播放第一段' : '静态模型 · 保留原始 PBR 材质'}</small>{object.attribution && <small>{object.attribution}</small>}</div></div></section>}
-    <section><h3><ChevronDown size={13} /> 显示</h3><ToggleRow label="投射阴影" value={object.castShadow !== false} onChange={(castShadow) => updateObject(object.id, { castShadow })} /><ToggleRow label="接收阴影" value={object.receiveShadow !== false} onChange={(receiveShadow) => updateObject(object.id, { receiveShadow })} /></section>
+    </CollapsibleSection> : <CollapsibleSection><h3><ChevronDown size={13} /> GLB 模型</h3><div className="model-source"><BoxSelect size={16} /><div><strong>{object.name}</strong><small>{object.animated ? '包含动画 · 自动播放第一段' : '静态模型 · 保留原始 PBR 材质'}</small>{object.attribution && <small>{object.attribution}</small>}</div></div></CollapsibleSection>}
+    <CollapsibleSection><h3><ChevronDown size={13} /> 显示</h3><ToggleRow label="投射阴影" value={object.castShadow !== false} onChange={(castShadow) => updateObject(object.id, { castShadow })} /><ToggleRow label="接收阴影" value={object.receiveShadow !== false} onChange={(receiveShadow) => updateObject(object.id, { receiveShadow })} /></CollapsibleSection>
     </>}
   </aside>
 }
@@ -533,17 +565,17 @@ function SceneInspector() {
   const applyPreset = (preset) => updateScene({ environmentPreset: preset.id, ...preset.values })
   return <div className="scene-inspector">
     <div className="scene-summary"><div className="scene-orb"><Lightbulb size={18} /></div><div><strong>场景环境</strong><small>天空、大气、灯光与渲染</small></div></div>
-    <section><h3><ChevronDown size={13} /> 环境预设</h3><div className="environment-presets">{ENVIRONMENT_PRESETS.map((preset) => <button key={preset.id} className={environmentPreset === preset.id ? 'active' : ''} onClick={() => applyPreset(preset)}><span><i style={{ background: preset.colors[0] }} /><i style={{ background: preset.colors[1] }} /></span><small>{preset.label}</small></button>)}</div></section>
-    <section><h3><ChevronDown size={13} /> 天空与世界</h3><div className="mode-segments"><button className={backgroundMode === 'color' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'color', environmentPreset: 'custom' })}>影棚环境</button><button className={backgroundMode === 'sky' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'sky', environmentPreset: 'custom' })}>程序化天空</button></div>{backgroundMode === 'color' ? <ColorSetting label="背景" value={background} onChange={(background) => updateScene({ background, environmentPreset: 'custom' })} /> : <><RangeSetting label="太阳高度" value={sunElevation} min={-5} max={90} step={1} digits={0} suffix="°" onChange={(sunElevation) => updateScene({ sunElevation, environmentPreset: 'custom' })} /><RangeSetting label="太阳方位" value={sunAzimuth} min={0} max={360} step={1} digits={0} suffix="°" onChange={(sunAzimuth) => updateScene({ sunAzimuth, environmentPreset: 'custom' })} /><RangeSetting label="浑浊度" value={skyTurbidity} min={0} max={20} step={0.1} onChange={(skyTurbidity) => updateScene({ skyTurbidity })} /><RangeSetting label="瑞利散射" value={skyRayleigh} min={0} max={4} step={0.05} onChange={(skyRayleigh) => updateScene({ skyRayleigh })} /><RangeSetting label="米氏系数" value={skyMieCoefficient} min={0} max={0.02} step={0.001} digits={3} onChange={(skyMieCoefficient) => updateScene({ skyMieCoefficient })} /><RangeSetting label="米氏方向" value={skyMieDirectionalG} min={0} max={1} step={0.01} onChange={(skyMieDirectionalG) => updateScene({ skyMieDirectionalG })} /></>}<RangeSetting label="环境反射" value={environmentIntensity} min={0} max={3} step={0.05} onChange={(environmentIntensity) => updateScene({ environmentIntensity, environmentPreset: 'custom' })} /><RangeSetting label="环境旋转" value={environmentRotation} min={0} max={360} step={1} digits={0} suffix="°" onChange={(environmentRotation) => updateScene({ environmentRotation, environmentPreset: 'custom' })} /><RangeSetting label="曝光" value={exposure} min={0.2} max={2} step={0.05} onChange={(exposure) => updateScene({ exposure, environmentPreset: 'custom' })} /></section>
-    <section><h3><ChevronDown size={13} /> 主光 · 方向光</h3><ColorSetting label="颜色" value={keyLightColor} onChange={(keyLightColor) => updateScene({ keyLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={keyLightIntensity} min={0} max={5} step={0.1} onChange={(keyLightIntensity) => updateScene({ keyLightIntensity, environmentPreset: 'custom' })} /><SceneVectorSetting label="位置" value={keyLightPosition} onChange={(keyLightPosition) => updateScene({ keyLightPosition })} /></section>
-    <section><h3><ChevronDown size={13} /> 补光 · 点光</h3><ColorSetting label="颜色" value={fillLightColor} onChange={(fillLightColor) => updateScene({ fillLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={fillLightIntensity} min={0} max={20} step={0.5} onChange={(fillLightIntensity) => updateScene({ fillLightIntensity, environmentPreset: 'custom' })} /><RangeSetting label="距离" value={fillLightDistance} min={1} max={30} step={1} digits={0} onChange={(fillLightDistance) => updateScene({ fillLightDistance })} /><SceneVectorSetting label="位置" value={fillLightPosition} onChange={(fillLightPosition) => updateScene({ fillLightPosition })} /></section>
-    <section><h3><ChevronDown size={13} /> 轮廓光 · 聚光</h3><ToggleRow label="启用轮廓光" value={rimLightEnabled} onChange={(rimLightEnabled) => updateScene({ rimLightEnabled })} />{rimLightEnabled && <><ColorSetting label="颜色" value={rimLightColor} onChange={(rimLightColor) => updateScene({ rimLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={rimLightIntensity} min={0} max={8} step={0.1} onChange={(rimLightIntensity) => updateScene({ rimLightIntensity })} /><RangeSetting label="锥角" value={rimLightAngle} min={5} max={75} step={1} digits={0} suffix="°" onChange={(rimLightAngle) => updateScene({ rimLightAngle })} /><SceneVectorSetting label="位置" value={rimLightPosition} onChange={(rimLightPosition) => updateScene({ rimLightPosition })} /></>}</section>
-    <section><h3><ChevronDown size={13} /> 天空光 · 半球光</h3><ToggleRow label="启用天空光" value={hemisphereEnabled} onChange={(hemisphereEnabled) => updateScene({ hemisphereEnabled })} />{hemisphereEnabled && <><ColorSetting label="天空颜色" value={hemisphereSkyColor} onChange={(hemisphereSkyColor) => updateScene({ hemisphereSkyColor })} /><ColorSetting label="地面颜色" value={hemisphereGroundColor} onChange={(hemisphereGroundColor) => updateScene({ hemisphereGroundColor })} /><RangeSetting label="强度" value={hemisphereIntensity} min={0} max={3} step={0.05} onChange={(hemisphereIntensity) => updateScene({ hemisphereIntensity })} /></>}<RangeSetting label="环境光" value={ambient} min={0} max={2} step={0.05} onChange={(ambient) => updateScene({ ambient, environmentPreset: 'custom' })} /></section>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 环境预设</h3><div className="environment-presets">{ENVIRONMENT_PRESETS.map((preset) => <button key={preset.id} className={environmentPreset === preset.id ? 'active' : ''} onClick={() => applyPreset(preset)}><span><i style={{ background: preset.colors[0] }} /><i style={{ background: preset.colors[1] }} /></span><small>{preset.label}</small></button>)}</div></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 天空与世界</h3><div className="mode-segments"><button className={backgroundMode === 'color' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'color', environmentPreset: 'custom' })}>影棚环境</button><button className={backgroundMode === 'sky' ? 'active' : ''} onClick={() => updateScene({ backgroundMode: 'sky', environmentPreset: 'custom' })}>程序化天空</button></div>{backgroundMode === 'color' ? <ColorSetting label="背景" value={background} onChange={(background) => updateScene({ background, environmentPreset: 'custom' })} /> : <><RangeSetting label="太阳高度" value={sunElevation} min={-5} max={90} step={1} digits={0} suffix="°" onChange={(sunElevation) => updateScene({ sunElevation, environmentPreset: 'custom' })} /><RangeSetting label="太阳方位" value={sunAzimuth} min={0} max={360} step={1} digits={0} suffix="°" onChange={(sunAzimuth) => updateScene({ sunAzimuth, environmentPreset: 'custom' })} /><RangeSetting label="浑浊度" value={skyTurbidity} min={0} max={20} step={0.1} onChange={(skyTurbidity) => updateScene({ skyTurbidity })} /><RangeSetting label="瑞利散射" value={skyRayleigh} min={0} max={4} step={0.05} onChange={(skyRayleigh) => updateScene({ skyRayleigh })} /><RangeSetting label="米氏系数" value={skyMieCoefficient} min={0} max={0.02} step={0.001} digits={3} onChange={(skyMieCoefficient) => updateScene({ skyMieCoefficient })} /><RangeSetting label="米氏方向" value={skyMieDirectionalG} min={0} max={1} step={0.01} onChange={(skyMieDirectionalG) => updateScene({ skyMieDirectionalG })} /></>}<RangeSetting label="环境反射" value={environmentIntensity} min={0} max={3} step={0.05} onChange={(environmentIntensity) => updateScene({ environmentIntensity, environmentPreset: 'custom' })} /><RangeSetting label="环境旋转" value={environmentRotation} min={0} max={360} step={1} digits={0} suffix="°" onChange={(environmentRotation) => updateScene({ environmentRotation, environmentPreset: 'custom' })} /><RangeSetting label="曝光" value={exposure} min={0.2} max={2} step={0.05} onChange={(exposure) => updateScene({ exposure, environmentPreset: 'custom' })} /></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 主光 · 方向光</h3><ColorSetting label="颜色" value={keyLightColor} onChange={(keyLightColor) => updateScene({ keyLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={keyLightIntensity} min={0} max={5} step={0.1} onChange={(keyLightIntensity) => updateScene({ keyLightIntensity, environmentPreset: 'custom' })} /><SceneVectorSetting label="位置" value={keyLightPosition} onChange={(keyLightPosition) => updateScene({ keyLightPosition })} /></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 补光 · 点光</h3><ColorSetting label="颜色" value={fillLightColor} onChange={(fillLightColor) => updateScene({ fillLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={fillLightIntensity} min={0} max={20} step={0.5} onChange={(fillLightIntensity) => updateScene({ fillLightIntensity, environmentPreset: 'custom' })} /><RangeSetting label="距离" value={fillLightDistance} min={1} max={30} step={1} digits={0} onChange={(fillLightDistance) => updateScene({ fillLightDistance })} /><SceneVectorSetting label="位置" value={fillLightPosition} onChange={(fillLightPosition) => updateScene({ fillLightPosition })} /></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 轮廓光 · 聚光</h3><ToggleRow label="启用轮廓光" value={rimLightEnabled} onChange={(rimLightEnabled) => updateScene({ rimLightEnabled })} />{rimLightEnabled && <><ColorSetting label="颜色" value={rimLightColor} onChange={(rimLightColor) => updateScene({ rimLightColor, environmentPreset: 'custom' })} /><RangeSetting label="强度" value={rimLightIntensity} min={0} max={8} step={0.1} onChange={(rimLightIntensity) => updateScene({ rimLightIntensity })} /><RangeSetting label="锥角" value={rimLightAngle} min={5} max={75} step={1} digits={0} suffix="°" onChange={(rimLightAngle) => updateScene({ rimLightAngle })} /><SceneVectorSetting label="位置" value={rimLightPosition} onChange={(rimLightPosition) => updateScene({ rimLightPosition })} /></>}</CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 天空光 · 半球光</h3><ToggleRow label="启用天空光" value={hemisphereEnabled} onChange={(hemisphereEnabled) => updateScene({ hemisphereEnabled })} />{hemisphereEnabled && <><ColorSetting label="天空颜色" value={hemisphereSkyColor} onChange={(hemisphereSkyColor) => updateScene({ hemisphereSkyColor })} /><ColorSetting label="地面颜色" value={hemisphereGroundColor} onChange={(hemisphereGroundColor) => updateScene({ hemisphereGroundColor })} /><RangeSetting label="强度" value={hemisphereIntensity} min={0} max={3} step={0.05} onChange={(hemisphereIntensity) => updateScene({ hemisphereIntensity })} /></>}<RangeSetting label="环境光" value={ambient} min={0} max={2} step={0.05} onChange={(ambient) => updateScene({ ambient, environmentPreset: 'custom' })} /></CollapsibleSection>
     <CustomLightsEditor />
-    <section><h3><ChevronDown size={13} /> 雾效</h3><ToggleRow label="启用雾效" value={fogEnabled} onChange={(fogEnabled) => updateScene({ fogEnabled, environmentPreset: 'custom' })} />{fogEnabled && <><ColorSetting label="雾颜色" value={fogColor} onChange={(fogColor) => updateScene({ fogColor, environmentPreset: 'custom' })} /><NumberSetting label="起始 / 结束" values={[fogNear, fogFar]} onChange={([fogNear, fogFar]) => updateScene({ fogNear, fogFar })} /></>}</section>
-    <section><h3><ChevronDown size={13} /> 阴影</h3><ToggleRow label="实时阴影" value={shadows} onChange={toggleShadows} />{shadows && <><RangeSetting label="接触阴影" value={shadowOpacity} min={0} max={1} step={0.05} onChange={(shadowOpacity) => updateScene({ shadowOpacity })} /><RangeSetting label="柔化" value={shadowBlur} min={0.5} max={6} step={0.1} onChange={(shadowBlur) => updateScene({ shadowBlur })} /></>}</section>
-    <section><h3><ChevronDown size={13} /> 视口辅助</h3><ToggleRow label="显示网格" value={grid} onChange={toggleGrid} />{grid && <><ColorSetting label="细网格" value={gridColor} onChange={(gridColor) => updateScene({ gridColor })} /><ColorSetting label="主网格" value={gridSectionColor} onChange={(gridSectionColor) => updateScene({ gridSectionColor })} /><RangeSetting label="网格间距" value={gridSize} min={0.1} max={2} step={0.1} onChange={(gridSize) => updateScene({ gridSize })} /></>}<RangeSetting label="相机视角" value={cameraFov} min={20} max={80} step={1} digits={0} suffix="°" onChange={(cameraFov) => updateScene({ cameraFov })} /></section>
-    <section><h3><ChevronDown size={13} /> 渲染信息</h3><div className="metric-grid"><div><span>{useEditor.getState().objects.length}</span><small>对象</small></div><div><span>WebGL 2</span><small>渲染器</small></div></div></section>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 雾效</h3><ToggleRow label="启用雾效" value={fogEnabled} onChange={(fogEnabled) => updateScene({ fogEnabled, environmentPreset: 'custom' })} />{fogEnabled && <><ColorSetting label="雾颜色" value={fogColor} onChange={(fogColor) => updateScene({ fogColor, environmentPreset: 'custom' })} /><NumberSetting label="起始 / 结束" values={[fogNear, fogFar]} onChange={([fogNear, fogFar]) => updateScene({ fogNear, fogFar })} /></>}</CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 阴影</h3><ToggleRow label="实时阴影" value={shadows} onChange={toggleShadows} />{shadows && <><RangeSetting label="接触阴影" value={shadowOpacity} min={0} max={1} step={0.05} onChange={(shadowOpacity) => updateScene({ shadowOpacity })} /><RangeSetting label="柔化" value={shadowBlur} min={0.5} max={6} step={0.1} onChange={(shadowBlur) => updateScene({ shadowBlur })} /></>}</CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 视口辅助</h3><ToggleRow label="显示网格" value={grid} onChange={toggleGrid} />{grid && <><ColorSetting label="细网格" value={gridColor} onChange={(gridColor) => updateScene({ gridColor })} /><ColorSetting label="主网格" value={gridSectionColor} onChange={(gridSectionColor) => updateScene({ gridSectionColor })} /><RangeSetting label="网格间距" value={gridSize} min={0.1} max={2} step={0.1} onChange={(gridSize) => updateScene({ gridSize })} /></>}<RangeSetting label="相机视角" value={cameraFov} min={20} max={80} step={1} digits={0} suffix="°" onChange={(cameraFov) => updateScene({ cameraFov })} /></CollapsibleSection>
+    <CollapsibleSection><h3><ChevronDown size={13} /> 渲染信息</h3><div className="metric-grid"><div><span>{useEditor.getState().objects.length}</span><small>对象</small></div><div><span>WebGL 2</span><small>渲染器</small></div></div></CollapsibleSection>
   </div>
 }
 
@@ -562,12 +594,12 @@ function CustomLightsEditor() {
   const selected = customLights.find((light) => light.id === selectedId)
   const add = (type) => { const id = addLight(type); setSelectedId(id); setAdding(false) }
   const remove = (id) => { removeLight(id); if (selectedId === id) setSelectedId(null) }
-  return <section className="custom-lights-section">
+  return <CollapsibleSection className="custom-lights-section">
     <h3><ChevronDown size={13} /> 自定义灯光 <span>{customLights.length}</span><button title="添加灯光" onClick={() => setAdding(!adding)}><Plus size={13} /></button></h3>
     {adding && <div className="light-type-menu">{CUSTOM_LIGHT_TYPES.map((item) => <button key={item.type} onClick={() => add(item.type)}><Lightbulb size={12} />{item.label}</button>)}</div>}
     {!customLights.length ? <div className="lights-empty"><Lightbulb size={17} /><span>可添加多个独立灯光</span></div> : <div className="lights-list">{customLights.map((light) => <div key={light.id} className={`light-list-item ${selectedId === light.id ? 'selected' : ''}`}><button onClick={() => setSelectedId(light.id)}><i style={{ background: light.color || light.skyColor }} /><span><strong>{light.name}</strong><small>{CUSTOM_LIGHT_TYPES.find((item) => item.type === light.type)?.label}</small></span></button><IconButton icon={light.enabled ? Eye : EyeOff} label={light.enabled ? '关闭灯光' : '开启灯光'} onClick={() => updateLight(light.id, { enabled: !light.enabled })} /><IconButton icon={Trash2} label="删除灯光" onClick={() => remove(light.id)} /></div>)}</div>}
     {selected && <CustomLightInspector light={selected} update={(patch) => updateLight(selected.id, patch)} />}
-  </section>
+  </CollapsibleSection>
 }
 
 function CustomLightInspector({ light, update }) {
