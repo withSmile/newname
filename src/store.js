@@ -10,6 +10,10 @@ const sceneDefaults = {
   environmentPreset: 'studio',
   backgroundMode: 'color',
   background: '#25292d',
+  skyboxHdr: null,
+  skyboxHdrName: '',
+  skyboxCube: [],
+  skyboxCubeNames: [],
   environmentIntensity: 1.25,
   environmentRotation: 0,
   skyTurbidity: 8,
@@ -38,6 +42,18 @@ const sceneDefaults = {
   exposure: 1,
   postProcessingEnabled: true,
   postProcessingQuality: 'balanced',
+  outlineEnabled: false,
+  outlineEdgeStrength: 3,
+  outlinePulseSpeed: 0,
+  outlineVisibleEdgeColor: '#ff7a4d',
+  outlineHiddenEdgeColor: '#3f2018',
+  outlineBlur: false,
+  outlineXRay: true,
+  colorAdjustEnabled: false,
+  brightness: 0,
+  contrast: 0,
+  hue: 0,
+  saturation: 0,
   bloomEnabled: false,
   bloomIntensity: 0.65,
   bloomThreshold: 0.82,
@@ -60,6 +76,11 @@ const sceneDefaults = {
   gridColor: '#5d6266',
   gridSectionColor: '#858b8f',
   gridSize: 0.5,
+  worldAxesEnabled: true,
+  worldAxesSize: 3,
+  worldAxesPosition: [0, 0.015, 0],
+  worldAxesOpacity: 0.9,
+  worldAxesDepthTest: true,
   sceneSize: 30,
   cameraFov: 42,
   cameraNear: 0.1,
@@ -125,13 +146,14 @@ export const useEditor = create((set, get) => ({
     const s = get()
     const id = `${type}-${Date.now()}`
     const flat = type === 'plane'
-    const next = [...s.objects, { id, name: makeName(type, s.objects), type, position: [0, flat ? 0.02 : 0.6, 0], rotation: flat ? [-Math.PI / 2, 0, 0] : [0, 0, 0], scale: [1, 1, 1], color: '#7ca6d8', roughness: 0.4, metalness: 0.1, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, visible: true }]
+    const flowPipe = type === 'flowPipe' ? { pipePoints: [[-1.8, 0, 0], [-0.6, 0.7, 0], [0.7, -0.2, 0.4], [1.8, 0.4, 0]], pipeRadius: 0.16, pipeSegments: 96, pipeRadialSegments: 16, pipeCurveType: 'catmullrom', pipeTension: 0.5, pipeBendFactor: 0.22, pipeClosed: false, pipeSmooth: true, pipeCreaseAngle: 60, flowMode: 'glow', flowSpeed: 0.5, flowDirection: 'forward', flowRepeat: 4, flowIntensity: 1.5, flowEmissive: '#2bbac7' } : {}
+    const next = [...s.objects, { id, name: makeName(type, s.objects), type, position: [0, flat ? 0.02 : 0.6, 0], rotation: flat ? [-Math.PI / 2, 0, 0] : [0, 0, 0], scale: [1, 1, 1], color: type === 'flowPipe' ? '#55c7d2' : '#7ca6d8', roughness: 0.4, metalness: 0.1, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, smoothShading: true, creaseAngle: 60, visible: true, ...flowPipe }]
     set({ objects: next, selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
-  addModel: ({ name, source, attribution, animated }) => {
+  addModel: ({ name, source, attribution, animated, format }) => {
     const s = get()
     const id = `model-${Date.now()}`
-    const model = { id, name: name || 'Imported Model', type: 'model', modelSource: source, attribution, animated, position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#ffffff', roughness: 0.5, metalness: 0, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, visible: true }
+    const model = { id, name: name || 'Imported Model', type: 'model', modelSource: source, modelFormat: format || 'glb', attribution, animated, position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#ffffff', roughness: 0.5, metalness: 0, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, smoothShading: true, creaseAngle: 60, visible: true }
     set({ objects: [...s.objects, model], selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
   deleteSelected: () => {

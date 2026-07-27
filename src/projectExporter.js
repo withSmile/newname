@@ -63,8 +63,15 @@ const sceneRuntime = `import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js'
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js'
+import { STLLoader } from 'three/addons/loaders/STLLoader.js'
+import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
 import { Sky } from 'three/addons/objects/Sky.js'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import { BlendFunction, BloomEffect, ChromaticAberrationEffect, DepthOfFieldEffect, EffectComposer, EffectPass, NoiseEffect, RenderPass, VignetteEffect } from 'postprocessing'
@@ -147,7 +154,28 @@ function addLight(scene, light) {
   scene.add(result)
 }
 
-function applyEnvironment(scene, renderer, settings, disposables) {
+async function applyEnvironment(scene, renderer, settings, disposables) {
+  if (settings.backgroundMode === 'hdr' && settings.skyboxHdr) {
+    const texture = await new RGBELoader().loadAsync(settings.skyboxHdr)
+    texture.mapping = THREE.EquirectangularReflectionMapping
+    scene.background = texture
+    scene.environment = texture
+    scene.environmentIntensity = settings.environmentIntensity
+    scene.environmentRotation.set(0, THREE.MathUtils.degToRad(settings.environmentRotation || 0), 0)
+    scene.backgroundRotation.set(0, THREE.MathUtils.degToRad(settings.environmentRotation || 0), 0)
+    disposables.push(texture)
+    return
+  }
+  if (settings.backgroundMode === 'cube' && settings.skyboxCube?.length === 6) {
+    const texture = await new THREE.CubeTextureLoader().loadAsync(settings.skyboxCube)
+    scene.background = texture
+    scene.environment = texture
+    scene.environmentIntensity = settings.environmentIntensity
+    scene.environmentRotation.set(0, THREE.MathUtils.degToRad(settings.environmentRotation || 0), 0)
+    scene.backgroundRotation.set(0, THREE.MathUtils.degToRad(settings.environmentRotation || 0), 0)
+    disposables.push(texture)
+    return
+  }
   const pmrem = new THREE.PMREMGenerator(renderer)
   let source
   if (settings.backgroundMode === 'sky') {
@@ -199,7 +227,7 @@ export async function createThreeScene(container, config, options = {}) {
 
   const disposables = []
   const mixers = []
-  applyEnvironment(scene, renderer, settings, disposables)
+  await applyEnvironment(scene, renderer, settings, disposables)
   if (settings.fogEnabled) scene.fog = new THREE.Fog(settings.fogColor, settings.fogNear, settings.fogFar)
 
   scene.add(new THREE.AmbientLight('#ffffff', settings.ambient))
@@ -221,6 +249,7 @@ export async function createThreeScene(container, config, options = {}) {
 
   const textureLoader = new THREE.TextureLoader()
   const gltfLoader = new GLTFLoader()
+  const modelLoaders = { fbx: new FBXLoader(), obj: new OBJLoader(), stl: new STLLoader(), ply: new PLYLoader(), dae: new ColladaLoader(), '3mf': new ThreeMFLoader() }
   let dracoLoader
   let ktx2Loader
   if (config.build?.draco) {
@@ -237,8 +266,11 @@ export async function createThreeScene(container, config, options = {}) {
   for (const object of objects) {
     let node
     if (object.type === 'model') {
-      const gltf = await gltfLoader.loadAsync(new URL(object.modelSource, assetBaseUrl).href)
-      const model = cloneSkeleton(gltf.scene)
+      const format = object.modelFormat || object.modelSource.split('.').pop().toLowerCase()
+      const loaded = format === 'glb' || format === 'gltf' ? await gltfLoader.loadAsync(new URL(object.modelSource, assetBaseUrl).href) : await modelLoaders[format].loadAsync(new URL(object.modelSource, assetBaseUrl).href)
+      const source = format === 'glb' || format === 'gltf' ? loaded.scene : format === 'dae' ? loaded.scene : loaded
+      const geometry = format === 'stl' || format === 'ply' ? loaded : null
+      const model = geometry ? new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: object.color || '#b8c1c7', roughness: object.roughness ?? 0.6, metalness: object.metalness ?? 0.05 })) : cloneSkeleton(source)
       const bounds = new THREE.Box3().setFromObject(model)
       const size = bounds.getSize(new THREE.Vector3())
       const center = bounds.getCenter(new THREE.Vector3())
@@ -249,9 +281,10 @@ export async function createThreeScene(container, config, options = {}) {
       normalized.add(model)
       node = new THREE.Group()
       node.add(normalized)
-      if (gltf.animations.length) {
+      const clips = loaded.animations || source?.animations || []
+      if (clips.length) {
         const mixer = new THREE.AnimationMixer(model)
-        mixer.clipAction(gltf.animations[0]).play()
+        mixer.clipAction(clips[0]).play()
         mixers.push(mixer)
       }
     } else {
@@ -273,6 +306,14 @@ export async function createThreeScene(container, config, options = {}) {
     helper.material.transparent = true
     helper.material.opacity = 0.55
     scene.add(helper)
+  }
+  if (settings.worldAxesEnabled) {
+    const axes = new THREE.AxesHelper(settings.worldAxesSize || 3)
+    axes.position.fromArray(settings.worldAxesPosition || [0, 0.015, 0])
+    axes.material.transparent = (settings.worldAxesOpacity ?? 0.9) < 1
+    axes.material.opacity = settings.worldAxesOpacity ?? 0.9
+    axes.material.depthTest = settings.worldAxesDepthTest !== false
+    scene.add(axes)
   }
 
   let composer = null
