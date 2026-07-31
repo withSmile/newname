@@ -541,13 +541,15 @@ const packageFor = (framework, sceneName, language, optimize) => JSON.stringify(
   },
 }, null, 2)
 
-export async function buildSceneProject({ framework, language = 'js', folderName, objects, settings, editor, includeAssets = true, includeReadme = true, optimizeDraco = false, optimizeKtx2 = false }) {
+export async function buildSceneProject({ framework, language = 'js', folderName, exportMode = 'scene', objects, settings, editor, ui, includeAssets = true, includeReadme = true, optimizeDraco = false, optimizeKtx2 = false }) {
   const files = new Map()
   const exportedObjects = structuredClone(objects)
   const sourceCache = new Map()
   const contentCache = new Map()
-  const draco = includeAssets && optimizeDraco
-  const ktx2 = includeAssets && optimizeKtx2
+  const includesScene = exportMode !== 'ui'
+  const includesUi = exportMode !== 'scene'
+  const draco = includesScene && includeAssets && optimizeDraco
+  const ktx2 = includesScene && includeAssets && optimizeKtx2
   const addAsset = async (source, folder, baseName, extension) => {
     if (!includeAssets || !source) return source
     if (sourceCache.has(source)) return sourceCache.get(source)
@@ -566,7 +568,7 @@ export async function buildSceneProject({ framework, language = 'js', folderName
     return finalPath
   }
 
-  for (const object of exportedObjects) {
+  for (const object of includesScene ? exportedObjects : []) {
     const objectSlug = slugify(object.name, object.id)
     if (object.type === 'model' && object.modelSource) {
       const extension = extensionFrom(object.modelSource, object.name, 'glb')
@@ -591,14 +593,39 @@ export async function buildSceneProject({ framework, language = 'js', folderName
   const moduleExtension = language === 'ts' ? 'ts' : 'js'
   const componentExtension = framework === 'react' ? (language === 'ts' ? 'tsx' : 'jsx') : 'vue'
   const config = { version: 2, name: folderName, exportedAt: new Date().toISOString(), build: { draco, ktx2 }, settings, editor, objects: exportedObjects }
-  files.set(`src/config/scene.config.${moduleExtension}`, `${language === 'ts' ? "import type { SceneConfig } from '../types'\n\n" : ''}export const sceneConfig${language === 'ts' ? ': SceneConfig' : ''} = ${JSON.stringify(config, null, 2)}\n`)
-  files.set(`src/runtime/createThreeScene.${moduleExtension}`, `${language === 'ts' ? '// @ts-nocheck -- generated Three.js runtime; public API is typed in types.ts.\n' : ''}${sceneRuntime}`)
-  files.set(`src/components/ThreeScene.${componentExtension}`, componentFor(framework, language))
-  files.set('src/styles/three-scene.css', `.three-scene { width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: ${settings.background}; }\n.three-scene canvas { display: block; width: 100%; height: 100%; }\n`)
+  if (includesScene) {
+    files.set(`src/config/scene.config.${moduleExtension}`, `${language === 'ts' ? "import type { SceneConfig } from '../types'\n\n" : ''}export const sceneConfig${language === 'ts' ? ': SceneConfig' : ''} = ${JSON.stringify(config, null, 2)}\n`)
+    files.set(`src/runtime/createThreeScene.${moduleExtension}`, `${language === 'ts' ? '// @ts-nocheck -- generated Three.js runtime; public API is typed in types.ts.\n' : ''}${sceneRuntime}`)
+    files.set(`src/components/ThreeScene.${componentExtension}`, componentFor(framework, language))
+    files.set('src/styles/three-scene.css', `.three-scene { width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: ${settings.background}; }\n.three-scene canvas { display: block; width: 100%; height: 100%; }\n`)
+  }
+  if (includesUi) {
+    const uiConfig = ui || { version: 1, template: 'minimal', canvas: { width: 1440, height: 900 }, nodes: [] }
+    files.set(`src/config/ui.config.${moduleExtension}`, `export const uiConfig = ${JSON.stringify(uiConfig, null, 2)}\n`)
+    const uiComponent = framework === 'react'
+      ? `import { uiConfig } from '../config/ui.config${language === 'ts' ? '' : '.js'}'\nimport '../styles/ui-canvas.css'\n\nexport function UiCanvas(${language === 'ts' ? "{ className = '' }: { className?: string }" : "{ className = '' }"}) {\n  return <div className={\`frame-ui-canvas frame-ui-theme-\${uiConfig.template} \${className}\`} style={{ aspectRatio: \`\${uiConfig.canvas.width} / \${uiConfig.canvas.height}\` }}>\n    {uiConfig.nodes.map((node) => <div key={node.id} className={\`frame-ui-node frame-ui-\${node.type}\`} style={{ left: node.x, top: node.y, width: node.width, height: node.height, display: node.visible === false ? 'none' : undefined, color: node.type === 'text' ? node.color : undefined, background: node.type !== 'text' ? node.color : undefined, fontSize: node.fontSize }}>{node.text}</div>)}\n  </div>\n}\n`
+      : `<script setup${language === 'ts' ? ' lang="ts"' : ''}>\nimport { uiConfig } from '../config/ui.config${language === 'ts' ? '' : '.js'}'\nimport '../styles/ui-canvas.css'\n</script>\n<template><div :class="['frame-ui-canvas', 'frame-ui-theme-' + uiConfig.template]"><div v-for="node in uiConfig.nodes" :key="node.id" :class="['frame-ui-node', 'frame-ui-' + node.type]" :style="{ left: node.x + 'px', top: node.y + 'px', width: node.width + 'px', height: node.height + 'px', display: node.visible === false ? 'none' : undefined, color: node.type === 'text' ? node.color : undefined, background: node.type !== 'text' ? node.color : undefined, fontSize: node.fontSize ? node.fontSize + 'px' : undefined }">{{ node.text }}</div></div></template>\n`
+    files.set(`src/components/UiCanvas.${componentExtension}`, uiComponent)
+    files.set('src/styles/ui-canvas.css', `.frame-ui-canvas{position:relative;width:100%;height:100%;overflow:hidden;background:#edf0f2}.frame-ui-theme-tech{background:#07111d;background-image:linear-gradient(#16a8ff09 1px,transparent 1px),linear-gradient(90deg,#16a8ff09 1px,transparent 1px);background-size:48px 48px}.frame-ui-node{position:absolute;box-sizing:border-box}.frame-ui-text{background:transparent;font-family:system-ui,sans-serif}.frame-ui-panel{padding:16px;border:1px solid #ffffff18;color:#bdeaff}.frame-ui-button{display:flex;align-items:center;justify-content:center;border:0;border-radius:4px;color:#fff}\n`)
+  }
+  if (exportMode === 'composite') {
+    const composite = framework === 'react'
+      ? `import { ThreeScene } from './ThreeScene${language === 'ts' ? '' : '.jsx'}'\nimport { UiCanvas } from './UiCanvas${language === 'ts' ? '' : '.jsx'}'\nimport '../styles/composite-scene.css'\nexport function CompositeScene() { return <div className="frame-composite"><ThreeScene className="frame-composite-3d" /><UiCanvas className="frame-composite-ui" /></div> }\n`
+      : `<script setup><import-error /></script>\n<script setup${language === 'ts' ? ' lang="ts"' : ''}>\nimport ThreeScene from './ThreeScene.vue'\nimport UiCanvas from './UiCanvas.vue'\nimport '../styles/composite-scene.css'\n</script>\n<template><div class="frame-composite"><ThreeScene class="frame-composite-3d"/><UiCanvas class="frame-composite-ui"/></div></template>\n`
+    files.set(`src/components/CompositeScene.${componentExtension}`, composite.replace('<script setup><import-error /></script>\n', ''))
+    files.set('src/styles/composite-scene.css', `.frame-composite{position:relative;width:100%;height:100%;min-height:480px;overflow:hidden}.frame-composite-3d,.frame-composite-ui{position:absolute;inset:0}.frame-composite-ui{z-index:2;pointer-events:none}.frame-composite-ui .frame-ui-button{pointer-events:auto}\n`)
+  }
   const componentImport = framework === 'vue' ? `./components/ThreeScene.${componentExtension}` : `./components/ThreeScene${language === 'ts' ? '' : '.jsx'}`
   const configImport = `./config/scene.config${language === 'ts' ? '' : '.js'}`
-  files.set(`src/index.${moduleExtension}`, `export { ThreeScene } from '${componentImport}'\nexport { sceneConfig } from '${configImport}'\n${language === 'ts' ? "export type { SceneConfig, ThreeSceneProps, ThreeSceneRuntime } from './types'\n" : ''}`)
-  if (language === 'ts') files.set('src/types.ts', typesTemplate)
+  const uiImport = framework === 'vue' ? `./components/UiCanvas.${componentExtension}` : `./components/UiCanvas${language === 'ts' ? '' : '.jsx'}`
+  const compositeImport = framework === 'vue' ? `./components/CompositeScene.${componentExtension}` : `./components/CompositeScene${language === 'ts' ? '' : '.jsx'}`
+  const indexLines = []
+  if (includesScene) indexLines.push(`export { ThreeScene } from '${componentImport}'`, `export { sceneConfig } from '${configImport}'`)
+  if (includesUi) indexLines.push(`export { UiCanvas } from '${uiImport}'`, `export { uiConfig } from './config/ui.config${language === 'ts' ? '' : '.js'}'`)
+  if (exportMode === 'composite') indexLines.push(`export { CompositeScene } from '${compositeImport}'`)
+  if (language === 'ts' && includesScene) indexLines.push("export type { SceneConfig, ThreeSceneProps, ThreeSceneRuntime } from './types'")
+  files.set(`src/index.${moduleExtension}`, `${indexLines.join('\n')}\n`)
+  if (language === 'ts' && includesScene) files.set('src/types.ts', typesTemplate)
   if (draco || ktx2) files.set('scripts/optimize-assets.mjs', optimizationScriptFor(draco, ktx2))
   files.set('package.json', packageFor(framework, folderName, language, draco || ktx2))
   if (includeReadme) files.set('README.md', readmeFor(framework, folderName, language, draco || ktx2))

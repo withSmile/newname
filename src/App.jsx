@@ -1,6 +1,6 @@
 import React, { forwardRef, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useLoader, useThree } from '@react-three/fiber'
-import { Center, ContactShadows, Edges, GizmoHelper, GizmoViewport, Grid, OrbitControls, OrthographicCamera, PerspectiveCamera, Sky, TransformControls, useAnimations, useGLTF } from '@react-three/drei'
+import { Canvas, createPortal, useLoader, useThree } from '@react-three/fiber'
+import { Center, ContactShadows, Edges, GizmoHelper, GizmoViewport, Grid, Html, OrbitControls, OrthographicCamera, PerspectiveCamera, Sky, TransformControls, useAnimations, useGLTF } from '@react-three/drei'
 import { Bloom, BrightnessContrast, ChromaticAberration, DepthOfField, EffectComposer, HueSaturation, Noise, Outline, Vignette } from '@react-three/postprocessing'
 import { BlendFunction, KernelSize } from 'postprocessing'
 import * as THREE from 'three'
@@ -17,7 +17,7 @@ import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js'
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
 import {
   Box, BoxSelect, Camera, Check, ChevronDown, ChevronsDown, ChevronsUp, Circle, Copy, Download, Eye, EyeOff, FileJson, Focus, ImagePlus,
-  Grid3X3, HelpCircle, ImageDown, Lightbulb, Lock, Magnet, Menu, MousePointer2, Move3D,
+  Grid3X3, HelpCircle, ImageDown, Lightbulb, Lock, Magnet, Menu, MousePointer2, Move3D, Layers, Monitor, Smartphone, Type, LayoutTemplate, MapPin,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Plus, Redo2, Rotate3D, Scaling, Search, Settings2, Shapes, Trash2, Undo2, Unlock, Upload, X,
 } from 'lucide-react'
@@ -29,6 +29,10 @@ import { RoamingRuntime } from './features/interaction/roaming/RoamingRuntime'
 import { FlowPipeObject } from './features/scene/flow-pipe/FlowPipeObject'
 import { FlowPipeInspector } from './features/scene/flow-pipe/FlowPipeInspector'
 import { useRoaming } from './features/interaction/roaming/roamingStore'
+import { AnimationPanel } from './features/animation/AnimationPanel'
+import { AnimationRuntime } from './features/animation/AnimationRuntime'
+import { PhysicsPanel } from './features/physics/PhysicsPanel'
+import { PhysicsRuntime } from './features/physics/PhysicsRuntime'
 
 const geometryFor = (type) => {
   const center = (geometry) => { geometry.computeBoundingBox(); geometry.center(); geometry.computeBoundingSphere(); if (geometry.attributes.uv && !geometry.attributes.uv1) geometry.setAttribute('uv1', geometry.attributes.uv.clone()) }
@@ -196,6 +200,7 @@ function ObjectMaterial({ object, shading }) {
 const GLTFImportedModel = forwardRef(function GLTFImportedModel({ object }, ref) {
   const selectedId = useEditor((s) => s.selectedId)
   const setSelected = useEditor((s) => s.setSelected)
+  const updateObject = useEditor((s) => s.updateObject)
   const gltf = useGLTF(object.modelSource)
   const model = useMemo(() => { const cloned = cloneSkeleton(gltf.scene); cloned.traverse((child) => { if (child.isMesh && child.material) child.material = Array.isArray(child.material) ? child.material.map((material) => material.clone()) : child.material.clone() }); return applyMeshSmoothing(cloned, object) }, [gltf.scene, object.smoothShading, object.creaseAngle])
   const animationRoot = useRef()
@@ -206,7 +211,8 @@ const GLTFImportedModel = forwardRef(function GLTFImportedModel({ object }, ref)
     return 1.8 / Math.max(size.x, size.y, size.z, 0.001)
   }, [model])
   useEffect(() => { model.traverse((child) => { if (child.isMesh) { child.castShadow = object.castShadow !== false; child.receiveShadow = object.receiveShadow !== false; const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.filter(Boolean).forEach((material) => { material.transparent = Boolean(object.transparent || (object.opacity ?? 1) < 1); material.opacity = object.opacity ?? 1; material.alphaTest = object.alphaTest ?? 0; material.depthWrite = object.depthWrite !== false; material.side = object.doubleSided ? THREE.DoubleSide : THREE.FrontSide; material.needsUpdate = true }) } }) }, [model, object.castShadow, object.receiveShadow, object.transparent, object.opacity, object.alphaTest, object.depthWrite, object.doubleSided])
-  useEffect(() => { const action = names.length ? actions[names[0]] : null; action?.reset().fadeIn(0.2).play(); return () => action?.fadeOut(0.15) }, [actions, names])
+  useEffect(() => { if (names.length && JSON.stringify(object.modelClips || []) !== JSON.stringify(names)) updateObject(object.id, { modelClips: names }, false) }, [names, object.id, object.modelClips, updateObject])
+  useEffect(() => { const action = names.length ? actions[object.animationClipName || names[0]] : null; if (!action || object.animationClipEnabled === false) return; action.reset(); action.timeScale = object.animationClipSpeed ?? 1; action.setEffectiveWeight(object.animationClipWeight ?? 1); action.setLoop(object.animationClipLoop === 'once' ? THREE.LoopOnce : object.animationClipLoop === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, object.animationClipLoop === 'once' ? 1 : Infinity); action.clampWhenFinished = object.animationClipLoop === 'once'; action.fadeIn(object.animationClipFade ?? 0.2).play(); return () => action.fadeOut(object.animationClipFade ?? 0.15) }, [actions, names, object.animationClipName, object.animationClipEnabled, object.animationClipSpeed, object.animationClipWeight, object.animationClipLoop, object.animationClipFade])
   return <group ref={ref} name={object.name} position={object.position} rotation={object.rotation} scale={object.scale} visible={object.visible} onClick={(e) => { e.stopPropagation(); setSelected(object.id) }}>
     <group ref={animationRoot} scale={normalizedScale}><Center><primitive object={model} /></Center></group>
     {selectedId === object.id && <pointLight intensity={0.01} />}
@@ -216,6 +222,7 @@ const GLTFImportedModel = forwardRef(function GLTFImportedModel({ object }, ref)
 const GenericImportedModel = forwardRef(function GenericImportedModel({ object }, ref) {
   const selectedId = useEditor((s) => s.selectedId)
   const setSelected = useEditor((s) => s.setSelected)
+  const updateObject = useEditor((s) => s.updateObject)
   const format = object.modelFormat || modelFormatFrom(object.name)
   const definition = MODEL_FORMATS[format]
   const loaded = useLoader(definition.loader, object.modelSource)
@@ -235,7 +242,8 @@ const GenericImportedModel = forwardRef(function GenericImportedModel({ object }
     const size = new THREE.Box3().setFromObject(target).getSize(new THREE.Vector3())
     return 1.8 / Math.max(size.x, size.y, size.z, 0.001)
   }, [model, loaded, definition.geometry])
-  useEffect(() => { const action = names.length ? actions[names[0]] : null; action?.reset().fadeIn(0.2).play(); return () => action?.fadeOut(0.15) }, [actions, names])
+  useEffect(() => { if (names.length && JSON.stringify(object.modelClips || []) !== JSON.stringify(names)) updateObject(object.id, { modelClips: names }, false) }, [names, object.id, object.modelClips, updateObject])
+  useEffect(() => { const action = names.length ? actions[object.animationClipName || names[0]] : null; if (!action || object.animationClipEnabled === false) return; action.reset(); action.timeScale = object.animationClipSpeed ?? 1; action.setEffectiveWeight(object.animationClipWeight ?? 1); action.setLoop(object.animationClipLoop === 'once' ? THREE.LoopOnce : object.animationClipLoop === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, object.animationClipLoop === 'once' ? 1 : Infinity); action.clampWhenFinished = object.animationClipLoop === 'once'; action.fadeIn(object.animationClipFade ?? 0.2).play(); return () => action.fadeOut(object.animationClipFade ?? 0.15) }, [actions, names, object.animationClipName, object.animationClipEnabled, object.animationClipSpeed, object.animationClipWeight, object.animationClipLoop, object.animationClipFade])
   useEffect(() => { model?.traverse((child) => { if (child.isMesh) { child.castShadow = object.castShadow !== false; child.receiveShadow = object.receiveShadow !== false } }) }, [model, object.castShadow, object.receiveShadow])
   return <group ref={ref} name={object.name} position={object.position} rotation={object.rotation} scale={object.scale} visible={object.visible} onClick={(e) => { e.stopPropagation(); setSelected(object.id) }}>
     <group ref={animationRoot} scale={normalizedScale}><Center>{definition.geometry ? <mesh geometry={loaded} castShadow receiveShadow><meshStandardMaterial color={object.color || '#b8c1c7'} roughness={object.roughness ?? 0.6} metalness={object.metalness ?? 0.05} flatShading={object.smoothShading === false} /></mesh> : <primitive object={model} />}</Center></group>
@@ -283,6 +291,29 @@ const SceneObject = forwardRef(function SceneObject({ object }, ref) {
   )
 })
 
+function ObjectAnnotation({ object }) {
+  const type = object.annotationType || 'label'
+  const text = object.annotationText || object.name
+  const color = object.annotationColor || '#e17653'
+  const size = object.annotationSize ?? 1
+  const position = object.annotationOffset || [0, 1.2, 0]
+  const spriteTexture = useMemo(() => {
+    if (type !== 'sprite') return null
+    const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128
+    const context = canvas.getContext('2d'); context.clearRect(0, 0, 512, 128); context.fillStyle = '#15191cdd'; context.roundRect(4, 4, 504, 120, 18); context.fill(); context.fillStyle = color; context.fillRect(4, 4, 10, 120); context.fillStyle = '#ffffff'; context.font = '600 34px Arial'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText(text.slice(0, 24), 268, 64)
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.needsUpdate = true
+    return texture
+  }, [type, text, color])
+  useEffect(() => () => spriteTexture?.dispose(), [spriteTexture])
+  if (!object.annotationEnabled) return null
+  if (type === 'sprite') return <sprite position={position} scale={[2.4 * size, 0.6 * size, 1]} raycast={() => null}><spriteMaterial map={spriteTexture} transparent depthTest={object.annotationOcclude !== false} /></sprite>
+  const transform = type === 'css3d'
+  const icon = type === 'icon'
+  return <Html position={position} center transform={transform} sprite={transform} distanceFactor={transform ? 7 / size : undefined} occlude={object.annotationOcclude ? 'blending' : false} style={{ pointerEvents: 'none' }}>
+    <div className={`object-annotation annotation-${type}`} style={{ '--annotation-color': color, '--annotation-scale': size }}>{icon ? <><MapPin size={15} /><span>{text}</span></> : <><i /> <span>{text}</span></>}</div>
+  </Html>
+}
+
 function EditableObject({ object }) {
   const ref = useRef()
   const [target, setTarget] = useState(null)
@@ -293,7 +324,7 @@ function EditableObject({ object }) {
   const updateObject = useEditor((s) => s.updateObject)
   const snap = useEditor((s) => s.snap)
   const snapSize = useEditor((s) => s.snapSize)
-  const content = <SceneObject ref={bindMesh} object={object} />
+  const content = <><SceneObject ref={bindMesh} object={object} />{target && createPortal(<ObjectAnnotation object={object} />, target)}</>
   if (selectedId !== object.id || object.locked || (object.type === 'flowPipe' && object.pipeEditPoints)) return content
   return <>{content}{target && <TransformControls object={target} mode={mode} space={space} size={0.78} translationSnap={snap ? snapSize : null} rotationSnap={snap ? THREE.MathUtils.degToRad(15) : null} scaleSnap={snap ? 0.1 : null} onMouseUp={() => {
     const target = ref.current
@@ -539,7 +570,7 @@ function AddMenu({ close }) {
   return <div className="add-menu">{groups.map(([group, items]) => <React.Fragment key={group}><div className="add-menu-label">{group}</div>{items.map(([type, Icon, label]) => <button key={type} onClick={() => { addObject(type); close() }}><Icon size={15} />{label}</button>)}</React.Fragment>)}<i /><div className="add-menu-label">外部模型</div><button className="model-import-action" onClick={() => { window.dispatchEvent(new Event('frame-import-model')); close() }}><Upload size={15} /><span><strong>按格式导入</strong><small>选择 Loader 与模型文件</small></span></button><div className="model-format-list"><b>GLB</b><span>glTF</span><span>FBX</span><span>OBJ</span><span>STL</span><span>PLY</span><span>DAE</span><span>3MF</span></div><button onClick={() => { addModel(MODEL_ASSETS[3]); close() }}><BoxSelect size={15} />加载示例模型</button></div>
 }
 
-function Header({ notify, showHelp, showExport }) {
+function Header({ notify, showHelp, showExport, workspaceMode, onWorkspaceModeChange }) {
   const [open, setOpen] = useState(false)
   const [fileOpen, setFileOpen] = useState(false)
   const [modelImportOpen, setModelImportOpen] = useState(false)
@@ -572,6 +603,10 @@ function Header({ notify, showHelp, showExport }) {
   const capture = () => { const canvas = document.querySelector('.viewport canvas'); if (!canvas) return; const a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = 'frame-viewport.png'; a.click(); notify('视口截图已保存') }
   return <header className="header">
     <div className="brand-mark"><span>F</span></div><div className="brand"><strong>FRAME</strong><small>THREE EDITOR</small></div>
+    <div className="workspace-switch" aria-label="编辑工作区">
+      <button className={workspaceMode === 'scene' ? 'active' : ''} onClick={() => onWorkspaceModeChange('scene')}><BoxSelect size={13} /><span>3D 场景</span></button>
+      <button className={workspaceMode === 'ui' ? 'active' : ''} onClick={() => onWorkspaceModeChange('ui')}><LayoutTemplate size={13} /><span>UI 画布</span></button>
+    </div>
     <div className="main-menu">
       <div className="menu-wrap"><button onClick={() => setFileOpen(!fileOpen)}>文件</button>{fileOpen && <div className="file-menu">
         <button onClick={() => fileRef.current?.click()}><Upload size={14} />导入场景 <kbd>JSON</kbd></button>
@@ -587,7 +622,7 @@ function Header({ notify, showHelp, showExport }) {
     {modelImportOpen && <div className="model-import-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setModelImportOpen(false) }}><div className="model-import-dialog" role="dialog" aria-modal="true" aria-label="选择模型格式"><div className="model-import-head"><div><strong>导入模型</strong><small>选择格式后使用对应的 Three.js Loader</small></div><button title="关闭" onClick={() => setModelImportOpen(false)}><X size={16} /></button></div><div className="model-import-grid">{Object.entries(MODEL_FORMATS).map(([format, definition]) => <button key={format} className={definition.recommended ? 'recommended' : ''} onClick={() => chooseModelFormat(format)}><span className="model-format-icon">{definition.label.slice(0, 3).toUpperCase()}</span><span><strong>{definition.label}{definition.recommended && <em>推荐</em>}</strong><small>{definition.description}</small><code>.{format}</code></span><ChevronDown size={14} /></button>)}</div><div className="model-import-note"><Check size={14} /><span>GLB 可完整封装贴图与动画；其他格式若引用外部资源，需要确保文件内已嵌入。</span></div></div></div>}
     <div className="project-title"><span className="status-dot" /> 未命名场景 <span className="save-state">已保存</span></div>
     <div className="header-actions">
-      <div className="add-wrap"><button className="add-button" onClick={() => setOpen(!open)}><Plus size={15} /> 添加对象 <ChevronDown size={13} /></button>{open && <AddMenu close={() => setOpen(false)} />}</div>
+      {workspaceMode === 'scene' && <div className="add-wrap"><button className="add-button" onClick={() => setOpen(!open)}><Plus size={15} /> 添加对象 <ChevronDown size={13} /></button>{open && <AddMenu close={() => setOpen(false)} />}</div>}
       <button className="export-button" onClick={showExport}><Download size={15} /> 导出项目</button>
       <IconButton icon={HelpCircle} label="快捷键帮助" onClick={showHelp} />
     </div>
@@ -642,7 +677,7 @@ function CollapsibleSection({ children, className = '', defaultOpen = true }) {
 }
 
 function Inspector({ onCollapse }) {
-  const [tab, setTab] = useState(() => { const panel = new URLSearchParams(window.location.search).get('panel'); return ['scene', 'post', 'interaction'].includes(panel) ? panel : 'object' })
+  const [tab, setTab] = useState(() => { const panel = new URLSearchParams(window.location.search).get('panel'); return ['scene', 'post', 'interaction', 'animation', 'physics'].includes(panel) ? panel : 'object' })
   const [sectionsExpanded, setSectionsExpanded] = useState(true)
   const { objects, selectedId, updateObject } = useEditor()
   const object = objects.find((o) => o.id === selectedId)
@@ -656,8 +691,8 @@ function Inspector({ onCollapse }) {
   }, [tab])
   return <aside className="right-panel panel">
     <div className="panel-heading"><span>检查器</span><div className="panel-heading-actions"><IconButton icon={sectionsExpanded ? ChevronsUp : ChevronsDown} label={sectionsExpanded ? '全部收起' : '全部展开'} onClick={toggleSections} /><IconButton icon={PanelRightClose} label="收起右侧栏" onClick={onCollapse} /></div></div>
-    <div className="inspector-tabs"><button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>对象</button><button className={tab === 'scene' ? 'active' : ''} onClick={() => setTab('scene')}>场景</button><button className={tab === 'post' ? 'active' : ''} onClick={() => setTab('post')}>后期</button><button className={tab === 'interaction' ? 'active' : ''} onClick={() => setTab('interaction')}>交互</button></div>
-    {tab === 'scene' ? <SceneInspector /> : tab === 'post' ? <PostProcessingPanel /> : tab === 'interaction' ? <RoamingPanel /> : !object ? <div className="no-selection"><MousePointer2 size={24} /><span>选择一个对象</span></div> : <>
+    <div className="inspector-tabs"><button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>对象</button><button className={tab === 'scene' ? 'active' : ''} onClick={() => setTab('scene')}>场景</button><button className={tab === 'post' ? 'active' : ''} onClick={() => setTab('post')}>后期</button><button className={tab === 'animation' ? 'active' : ''} onClick={() => setTab('animation')}>动画</button><button className={tab === 'physics' ? 'active' : ''} onClick={() => setTab('physics')}>物理</button><button className={tab === 'interaction' ? 'active' : ''} onClick={() => setTab('interaction')}>交互</button></div>
+    {tab === 'scene' ? <SceneInspector /> : tab === 'post' ? <PostProcessingPanel /> : tab === 'animation' ? <AnimationPanel /> : tab === 'physics' ? <PhysicsPanel /> : tab === 'interaction' ? <RoamingPanel /> : !object ? <div className="no-selection"><MousePointer2 size={24} /><span>选择一个对象</span></div> : <>
     <div className="object-title"><div className="object-icon"><Box size={16} /></div><div><input value={object.name} onChange={(e) => updateObject(object.id, { name: e.target.value }, false)} /><small>{object.type.toUpperCase()} / {object.id.slice(-6)}</small></div></div>
     <CollapsibleSection><h3><ChevronDown size={13} /> 变换</h3>
       <VectorInput label="位置" value={object.position} onChange={(position) => updateObject(object.id, { position })} />
@@ -675,6 +710,7 @@ function Inspector({ onCollapse }) {
       <TextureControl object={object} updateObject={updateObject} />
     </CollapsibleSection> : <CollapsibleSection><h3><ChevronDown size={13} /> 导入模型 <span className="format-badge">{(object.modelFormat || 'glb').toUpperCase()}</span></h3><div className="model-source"><BoxSelect size={16} /><div><strong>{object.name}</strong><small>{object.animated ? '包含动画 · 自动播放第一段' : '静态模型 · 使用原始材质'}</small>{object.attribution && <small>{object.attribution}</small>}</div></div><MaterialTransparencyControls object={object} updateObject={updateObject} /></CollapsibleSection>}
     <SmoothingControls object={object} updateObject={updateObject} />
+    <AnnotationControls object={object} updateObject={updateObject} />
     <CollapsibleSection><h3><ChevronDown size={13} /> 显示</h3><ToggleRow label="投射阴影" value={object.castShadow !== false} onChange={(castShadow) => updateObject(object.id, { castShadow })} /><ToggleRow label="接收阴影" value={object.receiveShadow !== false} onChange={(receiveShadow) => updateObject(object.id, { receiveShadow })} /></CollapsibleSection>
     </>}
   </aside>
@@ -690,6 +726,22 @@ function SmoothingControls({ object, updateObject }) {
   const creaseAngle = object.creaseAngle ?? object.pipeCreaseAngle ?? 60
   const patch = (values) => updateObject(object.id, { ...values, ...(object.type === 'flowPipe' ? { pipeSmooth: values.smoothShading ?? object.pipeSmooth, pipeCreaseAngle: values.creaseAngle ?? object.pipeCreaseAngle } : {}) })
   return <CollapsibleSection className="smoothing-section"><h3><ChevronDown size={13} /> 法线与光滑</h3><ToggleRow label="smoothShading · 光滑组" value={smooth} onChange={(smoothShading) => patch({ smoothShading })} />{smooth && <RangeSetting label="creaseAngle · 平滑夹角" value={creaseAngle} min={0} max={180} step={1} digits={0} suffix="°" hardMax onChange={(creaseAngle) => patch({ creaseAngle })} />}</CollapsibleSection>
+}
+
+function AnnotationControls({ object, updateObject }) {
+  const patch = (values) => updateObject(object.id, values)
+  const type = object.annotationType || 'label'
+  return <CollapsibleSection className="annotation-section" defaultOpen={false}><h3><ChevronDown size={13} /> 标注 · Annotation</h3>
+    <ToggleRow label="annotationEnabled · 启用" value={Boolean(object.annotationEnabled)} onChange={(annotationEnabled) => patch({ annotationEnabled })} />
+    {object.annotationEnabled && <>
+      <div className="property-row"><label>annotationType · 类型</label><select value={type} onChange={(e) => patch({ annotationType: e.target.value })}><option value="label">文字标签</option><option value="sprite">THREE.Sprite</option><option value="css2d">CSS2D 标签</option><option value="css3d">CSS3D 面板</option><option value="icon">图标标识</option></select></div>
+      <div className="property-row"><label>annotationText · 内容</label><input className="annotation-text-input" value={object.annotationText ?? object.name} onChange={(e) => patch({ annotationText: e.target.value })} /></div>
+      <VectorInput label="offset · 偏移" value={object.annotationOffset || [0, 1.2, 0]} onChange={(annotationOffset) => patch({ annotationOffset })} />
+      <ColorSetting label="annotationColor · 颜色" value={object.annotationColor || '#e17653'} onChange={(annotationColor) => patch({ annotationColor })} />
+      <RangeSetting label="annotationSize · 尺寸" value={object.annotationSize ?? 1} min={0.2} max={4} step={0.1} onChange={(annotationSize) => patch({ annotationSize })} />
+      <ToggleRow label="occlude · 遮挡检测" value={object.annotationOcclude !== false} onChange={(annotationOcclude) => patch({ annotationOcclude })} />
+    </>}
+  </CollapsibleSection>
 }
 
 function Slider({ label, value, onChange }) { return <RangeSetting label={label} value={value} min={0} max={1} step={0.01} hardMax onChange={onChange} /> }
@@ -982,11 +1034,166 @@ function Viewport({ leftPanelOpen, rightPanelOpen, openLeftPanel, openRightPanel
     <div className="viewport-label"><button onClick={() => setProjection(projection === 'perspective' ? 'orthographic' : 'perspective')}><Camera size={12} />{projection === 'perspective' ? '透视' : '正交'}</button><select value={shading} onChange={(e) => setShading(e.target.value)}><option value="solid">实体</option><option value="wireframe">线框</option></select></div>
     <div className="viewport-options"><IconButton icon={Grid3X3} label="网格" active={grid} onClick={toggleGrid} /><IconButton icon={Lightbulb} label="阴影" active={shadows} onClick={toggleShadows} /><IconButton icon={Focus} label="聚焦对象 (F)" onClick={() => window.dispatchEvent(new Event('frame-focus'))} /></div>
     <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, preserveDrawingBuffer: true, toneMapping: THREE.ACESFilmicToneMapping }}>
-      <Scene /><RoamingRuntime objectRefs={SCENE_OBJECT_REFS} /><FocusController /><RendererSettings /><PostProcessing />
+      <Scene /><AnimationRuntime objectRefs={SCENE_OBJECT_REFS} /><PhysicsRuntime objectRefs={SCENE_OBJECT_REFS} /><RoamingRuntime objectRefs={SCENE_OBJECT_REFS} /><FocusController /><RendererSettings /><PostProcessing />
     </Canvas>
     <div className="viewport-hint">左键选择 · 右键旋转 · 滚轮缩放</div>
     <div className="viewport-info">{selected ? `${selected.name} · ${selected.type}` : '未选择对象'}</div>
   </main>
+}
+
+const DEFAULT_UI_NODES = [
+  { id: 'ui-heading', type: 'text', name: '页面标题', text: '设备运行总览', x: 36, y: 34, width: 260, height: 42, fontSize: 28, color: '#f1f3f4' },
+  { id: 'ui-status', type: 'panel', name: '状态面板', text: '实时状态', x: 36, y: 104, width: 300, height: 150, color: '#252b2e' },
+  { id: 'ui-action', type: 'button', name: '主要操作', text: '启动巡检', x: 36, y: 282, width: 132, height: 38, color: '#d16847' },
+]
+
+const UI_TEMPLATES = {
+  minimal: {
+    label: '简约模态', background: '#edf0f2', accent: '#202426',
+    nodes: [
+      { id: 'minimal-bg-a', type: 'panel', name: '背景导航', text: 'Workspace', x: 24, y: 24, width: 148, height: 402, color: '#e2e6e8' },
+      { id: 'minimal-bg-b', type: 'panel', name: '背景内容', text: '项目概览', x: 188, y: 24, width: 508, height: 402, color: '#f7f8f8' },
+      { id: 'minimal-backdrop', type: 'panel', name: '模态遮罩', text: '', x: 0, y: 0, width: 720, height: 450, color: '#c8ced1' },
+      { id: 'minimal-modal', type: 'panel', name: '模态窗口', text: '', x: 154, y: 70, width: 412, height: 310, color: '#ffffff' },
+      { id: 'minimal-kicker', type: 'text', name: '模态类型', text: 'CREATE PROJECT', x: 186, y: 102, width: 180, height: 18, fontSize: 9, color: '#8a9296' },
+      { id: 'minimal-title', type: 'text', name: '模态标题', text: '创建新的空间项目', x: 186, y: 130, width: 300, height: 34, fontSize: 24, color: '#202426' },
+      { id: 'minimal-description', type: 'text', name: '辅助说明', text: '设置项目名称和画布规格，稍后仍可修改。', x: 186, y: 174, width: 330, height: 24, fontSize: 11, color: '#71797d' },
+      { id: 'minimal-field-a', type: 'panel', name: '项目名称输入框', text: '项目名称   智慧园区演示', x: 186, y: 214, width: 348, height: 46, color: '#f5f6f6' },
+      { id: 'minimal-field-b', type: 'panel', name: '画布规格输入框', text: '画布规格   Desktop · 1440 × 900', x: 186, y: 270, width: 348, height: 46, color: '#f5f6f6' },
+      { id: 'minimal-cancel', type: 'button', name: '取消按钮', text: '取消', x: 368, y: 330, width: 76, height: 34, color: '#e9ecee' },
+      { id: 'minimal-action', type: 'button', name: '确认按钮', text: '创建项目', x: 454, y: 330, width: 80, height: 34, color: '#202426' },
+    ],
+  },
+  tech: {
+    label: '科技蓝', background: '#07111d', accent: '#16a8ff',
+    nodes: [
+      { id: 'tech-header', type: 'panel', name: '顶部框架', text: '', x: 18, y: 14, width: 684, height: 54, color: '#0a2033' },
+      { id: 'tech-kicker', type: 'text', name: '系统标识', text: 'DIGITAL TWIN · LIVE', x: 36, y: 27, width: 190, height: 18, fontSize: 9, color: '#42c8ff' },
+      { id: 'tech-title', type: 'text', name: '大屏标题', text: '智慧园区数字孪生运营中心', x: 210, y: 24, width: 310, height: 30, fontSize: 20, color: '#e8f7ff' },
+      { id: 'tech-clock', type: 'text', name: '系统时间', text: '14:32:08  ·  ONLINE', x: 548, y: 30, width: 138, height: 18, fontSize: 9, color: '#79d6ff' },
+      { id: 'tech-left-a', type: 'panel', name: '设备总览', text: '设备总览   2,486', x: 18, y: 82, width: 164, height: 90, color: '#0c263b' },
+      { id: 'tech-left-b', type: 'panel', name: '能源指标', text: '实时能耗   42.8 kW', x: 18, y: 184, width: 164, height: 90, color: '#0b2236' },
+      { id: 'tech-left-c', type: 'panel', name: '环境监测', text: '环境指数   96 优', x: 18, y: 286, width: 164, height: 90, color: '#0c263b' },
+      { id: 'tech-center', type: 'panel', name: '三维主视区', text: '3D SCENE / 园区实时态势', x: 194, y: 82, width: 332, height: 294, color: '#081a2a' },
+      { id: 'tech-right-a', type: 'panel', name: '运行状态', text: '在线率   98.6%', x: 538, y: 82, width: 164, height: 90, color: '#0c263b' },
+      { id: 'tech-right-b', type: 'panel', name: '告警中心', text: '活动告警   03', x: 538, y: 184, width: 164, height: 90, color: '#10243a' },
+      { id: 'tech-right-c', type: 'panel', name: '巡检任务', text: '今日完成   18 / 24', x: 538, y: 286, width: 164, height: 90, color: '#0c263b' },
+      { id: 'tech-bottom-a', type: 'panel', name: '趋势图表', text: '能耗趋势 / ENERGY TREND', x: 18, y: 390, width: 332, height: 46, color: '#0a2135' },
+      { id: 'tech-bottom-b', type: 'panel', name: '设备状态', text: '设备状态 / DEVICE STATUS', x: 362, y: 390, width: 340, height: 46, color: '#0a2135' },
+    ],
+  },
+}
+
+function UiLayerPanel({ nodes, selectedId, onSelect, onAdd, onToggleVisibility, template, onTemplate, canvasSize }) {
+  return <aside className="left-panel panel ui-layer-panel">
+    <div className="panel-heading"><span>页面与图层</span><small>1 PAGE</small></div>
+    <div className="ui-page-row"><Monitor size={14} /><span>主界面</span><small>{canvasSize.width} × {canvasSize.height}</small></div>
+    <div className="ui-template-picker"><span>界面模板</span><div>{Object.entries(UI_TEMPLATES).map(([id, item]) => <button key={id} className={template === id ? 'active' : ''} onClick={() => onTemplate(id)}><i style={{ background: item.background }} /><b>{item.label}</b><small>{id === 'minimal' ? '明亮 / 克制' : '深色 / 数据化'}</small></button>)}</div></div>
+    <div className="ui-panel-label"><span>图层</span><button onClick={() => onAdd('panel')} title="添加容器"><Plus size={13} /></button></div>
+    <div className="ui-layer-list">{nodes.map((node) => <button key={node.id} className={selectedId === node.id ? 'selected' : ''} onClick={() => onSelect(node.id)}>
+      {node.type === 'text' ? <Type size={13} /> : node.type === 'button' ? <MousePointer2 size={13} /> : <LayoutTemplate size={13} />}
+      <span>{node.name}</span><i className="ui-layer-visibility" role="button" tabIndex={0} title={node.visible === false ? '显示图层' : '隐藏图层'} onClick={(event) => { event.stopPropagation(); onToggleVisibility(node.id) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onToggleVisibility(node.id) } }}>{node.visible === false ? <EyeOff size={12} /> : <Eye size={12} />}</i>
+    </button>)}</div>
+    <div className="ui-library"><div className="ui-panel-label"><span>基础组件</span></div><div className="ui-component-grid">
+      <button onClick={() => onAdd('text')}><Type size={15} /><span>文本</span></button>
+      <button onClick={() => onAdd('button')}><MousePointer2 size={15} /><span>按钮</span></button>
+      <button onClick={() => onAdd('panel')}><LayoutTemplate size={15} /><span>容器</span></button>
+      <button><ImagePlus size={15} /><span>图片</span></button>
+    </div></div>
+  </aside>
+}
+
+function UiInspector({ node, onChange, onDelete }) {
+  if (!node) return <aside className="right-panel panel ui-inspector"><div className="panel-heading"><span>UI 属性</span></div><div className="no-selection"><MousePointer2 size={24} /><span>选择一个 UI 图层</span></div></aside>
+  const field = (label, key, step = 1) => <label><span>{label}</span><input type="number" step={step} value={node[key]} onChange={(e) => onChange({ [key]: Number(e.target.value) })} /></label>
+  return <aside className="right-panel panel ui-inspector">
+    <div className="panel-heading"><span>UI 属性</span><div className="panel-heading-actions"><small>{node.type.toUpperCase()}</small><IconButton icon={Trash2} label="删除组件 (Delete)" onClick={onDelete} /></div></div>
+    <div className="ui-inspector-title"><i /><div><input value={node.name} onChange={(e) => onChange({ name: e.target.value })} /><small>{node.id}</small></div></div>
+    <section><h3><ChevronDown size={13} /> 布局 · Layout</h3><div className="ui-field-grid">{field('X', 'x')}{field('Y', 'y')}{field('宽度 W', 'width')}{field('高度 H', 'height')}</div></section>
+    <section><h3><ChevronDown size={13} /> 内容 · Content</h3><label className="ui-wide-field"><span>文本 text</span><input value={node.text} onChange={(e) => onChange({ text: e.target.value })} /></label></section>
+    <section><h3><ChevronDown size={13} /> 外观 · Appearance</h3><label className="ui-wide-field"><span>颜色 color</span><div className="color-control"><input type="color" value={node.color} onChange={(e) => onChange({ color: e.target.value })} /><input value={node.color.toUpperCase()} readOnly /></div></label>{node.type === 'text' && <div className="ui-field-grid">{field('字号 fontSize', 'fontSize')}</div>}</section>
+  </aside>
+}
+
+function UiWorkspace() {
+  const [nodes, setNodes] = useState(() => { try { return JSON.parse(localStorage.getItem('frame-ui-nodes')) || DEFAULT_UI_NODES } catch { return DEFAULT_UI_NODES } })
+  const [selectedId, setSelectedId] = useState('ui-heading')
+  const [zoom, setZoom] = useState(75)
+  const [template, setTemplate] = useState(() => localStorage.getItem('frame-ui-template') || 'tech')
+  const [canvasSize, setCanvasSize] = useState(() => { try { return JSON.parse(localStorage.getItem('frame-ui-canvas-size')) || { width: 1440, height: 900 } } catch { return { width: 1440, height: 900 } } })
+  const interactionRef = useRef(null)
+  const fitScale = Math.min(720 / canvasSize.width, 480 / canvasSize.height)
+  const artboardSize = { width: Math.round(canvasSize.width * fitScale), height: Math.round(canvasSize.height * fitScale) }
+  const artboardSizeRef = useRef(artboardSize)
+  artboardSizeRef.current = artboardSize
+  const selected = nodes.find((node) => node.id === selectedId)
+  useEffect(() => { localStorage.setItem('frame-ui-nodes', JSON.stringify(nodes)) }, [nodes])
+  useEffect(() => { localStorage.setItem('frame-ui-template', template) }, [template])
+  useEffect(() => { localStorage.setItem('frame-ui-canvas-size', JSON.stringify(canvasSize)) }, [canvasSize])
+  useEffect(() => {
+    const move = (event) => {
+      const operation = interactionRef.current
+      if (!operation) return
+      const dx = (event.clientX - operation.pointerX) / operation.scale
+      const dy = (event.clientY - operation.pointerY) / operation.scale
+      const minimumWidth = operation.node.type === 'text' ? 40 : 32
+      const minimumHeight = operation.node.type === 'text' ? 20 : 24
+      let { x, y, width, height } = operation.node
+      if (operation.kind === 'move') {
+        x = Math.max(0, Math.min(artboardSizeRef.current.width - width, operation.node.x + dx))
+        y = Math.max(0, Math.min(artboardSizeRef.current.height - height, operation.node.y + dy))
+      } else {
+        const direction = operation.direction
+        if (direction.includes('e')) width = Math.max(minimumWidth, Math.min(artboardSizeRef.current.width - x, operation.node.width + dx))
+        if (direction.includes('s')) height = Math.max(minimumHeight, Math.min(artboardSizeRef.current.height - y, operation.node.height + dy))
+        if (direction.includes('w')) { const nextX = Math.max(0, Math.min(operation.node.x + operation.node.width - minimumWidth, operation.node.x + dx)); width = operation.node.width + operation.node.x - nextX; x = nextX }
+        if (direction.includes('n')) { const nextY = Math.max(0, Math.min(operation.node.y + operation.node.height - minimumHeight, operation.node.y + dy)); height = operation.node.height + operation.node.y - nextY; y = nextY }
+      }
+      setNodes((items) => items.map((item) => item.id === operation.node.id ? { ...item, x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) } : item))
+    }
+    const end = () => { interactionRef.current = null; document.body.classList.remove('ui-dragging') }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end) }
+  }, [])
+  const update = (patch) => setNodes((items) => items.map((item) => item.id === selectedId ? { ...item, ...patch } : item))
+  const toggleVisibility = (id) => setNodes((items) => items.map((item) => item.id === id ? { ...item, visible: item.visible === false } : item))
+  const removeSelected = useCallback(() => {
+    if (!selectedId) return
+    setNodes((items) => { const next = items.filter((item) => item.id !== selectedId); setSelectedId(next[0]?.id || null); return next })
+  }, [selectedId])
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+      if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); removeSelected() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [removeSelected])
+  const add = (type) => { const id = `ui-${type}-${Date.now()}`; const node = { id, type, name: type === 'text' ? '文本' : type === 'button' ? '按钮' : '容器', text: type === 'text' ? '新建文本' : type === 'button' ? '按钮' : '容器', x: 80, y: 80, width: type === 'panel' ? 280 : 120, height: type === 'panel' ? 140 : 36, fontSize: 18, color: type === 'panel' ? '#252b2e' : type === 'button' ? '#d16847' : '#f1f3f4' }; setNodes((items) => [...items, node]); setSelectedId(id) }
+  const applyTemplate = (id) => { const next = UI_TEMPLATES[id]; setTemplate(id); setNodes(next.nodes.map((node) => ({ ...node }))); setSelectedId(next.nodes[0].id) }
+  const beginInteraction = (event, node, kind, direction = '') => {
+    event.preventDefault(); event.stopPropagation(); setSelectedId(node.id)
+    interactionRef.current = { kind, direction, node: { ...node }, pointerX: event.clientX, pointerY: event.clientY, scale: zoom / 100 }
+    document.body.classList.add('ui-dragging')
+  }
+  return <div className={`workspace ui-workspace ui-theme-${template}`}><UiLayerPanel nodes={nodes} selectedId={selectedId} onSelect={setSelectedId} onAdd={add} onToggleVisibility={toggleVisibility} template={template} onTemplate={applyTemplate} canvasSize={canvasSize} /><main className="ui-canvas-area">
+    <div className="ui-canvas-toolbar"><div><button className="active"><MousePointer2 size={14} /></button><button><Move3D size={14} /></button></div><div className="ui-canvas-size"><select onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); if (width) setCanvasSize({ width, height }) }} value={`${canvasSize.width}x${canvasSize.height}`}><option value="1440x900">Desktop 1440 × 900</option><option value="1920x1080">大屏 1920 × 1080</option><option value="2560x1440">2K 2560 × 1440</option><option value="390x844">Mobile 390 × 844</option><option value={`${canvasSize.width}x${canvasSize.height}`}>自定义</option></select><input aria-label="画板宽度" type="number" min="240" max="7680" value={canvasSize.width} onChange={(e) => setCanvasSize((size) => ({ ...size, width: Math.max(240, Number(e.target.value)) }))} /><span>×</span><input aria-label="画板高度" type="number" min="240" max="4320" value={canvasSize.height} onChange={(e) => setCanvasSize((size) => ({ ...size, height: Math.max(240, Number(e.target.value)) }))} /></div><div className="ui-zoom"><button onClick={() => setZoom(Math.max(25, zoom - 10))}>−</button><b>{zoom}%</b><button onClick={() => setZoom(Math.min(150, zoom + 10))}>+</button></div></div>
+    <div className="ui-ruler ui-ruler-x" /><div className="ui-ruler ui-ruler-y" />
+    <div className="ui-artboard-stage"><div className="ui-artboard" style={{ width: artboardSize.width, height: artboardSize.height, transform: `scale(${zoom / 100})`, background: UI_TEMPLATES[template].background }} onPointerDown={() => setSelectedId(null)}><div className="ui-artboard-label"><Monitor size={12} /> Canvas · {canvasSize.width} × {canvasSize.height}</div>{nodes.map((node) => <div key={node.id} data-node-id={node.id} role="button" tabIndex={0} className={`ui-node ui-node-${node.type} ${selectedId === node.id ? 'selected' : ''}`} style={{ left: node.x, top: node.y, width: node.width, height: node.height, display: node.visible === false ? 'none' : undefined, color: node.type === 'text' ? node.color : undefined, background: node.type !== 'text' ? node.color : undefined, fontSize: node.type === 'text' ? node.fontSize : undefined }} onPointerDown={(event) => beginInteraction(event, node, 'move')}>{node.text}{selectedId === node.id && <>{['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((direction) => <i key={direction} className={`ui-resize-handle handle-${direction}`} onPointerDown={(event) => beginInteraction(event, node, 'resize', direction)} />)}<span className="ui-selection-size">{node.width} × {node.height}</span></>}</div>)}</div></div>
+  </main><UiInspector node={selected} onChange={update} onDelete={removeSelected} /></div>
+}
+
+const readUiProject = () => {
+  try {
+    return {
+      version: 1,
+      template: localStorage.getItem('frame-ui-template') || 'tech',
+      canvas: JSON.parse(localStorage.getItem('frame-ui-canvas-size')) || { width: 1440, height: 900 },
+      nodes: JSON.parse(localStorage.getItem('frame-ui-nodes')) || DEFAULT_UI_NODES,
+    }
+  } catch { return { version: 1, template: 'tech', canvas: { width: 1440, height: 900 }, nodes: DEFAULT_UI_NODES } }
 }
 
 function App() {
@@ -995,6 +1202,7 @@ function App() {
   const [exportOpen, setExportOpen] = useState(false)
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => localStorage.getItem('frame-left-panel') !== 'closed')
   const [rightPanelOpen, setRightPanelOpen] = useState(() => localStorage.getItem('frame-right-panel') !== 'closed')
+  const [workspaceMode, setWorkspaceMode] = useState(() => localStorage.getItem('frame-workspace-mode') || 'scene')
   const { setMode, deleteSelected, duplicateSelected, undo, redo } = useEditor()
   const notify = (message) => { setToast(message); window.clearTimeout(window.__frameToast); window.__frameToast = window.setTimeout(() => setToast(''), 2200) }
   useEffect(() => {
@@ -1002,19 +1210,19 @@ function App() {
       if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
       const commandKey = e.ctrlKey || e.metaKey
       const hasModifier = commandKey || e.altKey
-      if (!hasModifier && !e.repeat) {
+      if (workspaceMode === 'scene' && !hasModifier && !e.repeat) {
         if (e.code === 'KeyW') setMode('translate')
         if (e.code === 'KeyE') setMode('rotate')
         if (e.code === 'KeyR') setMode('scale')
         if (e.code === 'KeyF') window.dispatchEvent(new Event('frame-focus'))
-        if (e.code === 'Delete' || e.code === 'Backspace') deleteSelected()
+        if (workspaceMode === 'scene' && (e.code === 'Delete' || e.code === 'Backspace')) deleteSelected()
       }
-      if (commandKey && e.code === 'KeyD') { e.preventDefault(); duplicateSelected() }
-      if (commandKey && e.code === 'KeyZ') { e.preventDefault(); e.shiftKey ? redo() : undo() }
+      if (workspaceMode === 'scene' && commandKey && e.code === 'KeyD') { e.preventDefault(); duplicateSelected() }
+      if (workspaceMode === 'scene' && commandKey && e.code === 'KeyZ') { e.preventDefault(); e.shiftKey ? redo() : undo() }
       if (commandKey && e.code === 'KeyS') { e.preventDefault(); document.querySelector('.export-button')?.click() }
     }
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
-  }, [setMode, deleteSelected, duplicateSelected, undo, redo])
+  }, [setMode, deleteSelected, duplicateSelected, undo, redo, workspaceMode])
   const objects = useEditor((s) => s.objects)
   const sceneSettingsJson = useEditor((s) => JSON.stringify(Object.fromEntries(SCENE_SETTING_KEYS.map((key) => [key, s[key]]))))
   useEffect(() => { try { const saved = JSON.parse(localStorage.getItem('frame-scene')); if (saved?.objects?.length) useEditor.getState().loadScene(saved); if (saved?.interaction?.roaming) useRoaming.getState().setSetting(saved.interaction.roaming) } catch { /* Ignore invalid local drafts. */ } }, [])
@@ -1039,8 +1247,9 @@ function App() {
   useEffect(() => { const timer = setTimeout(() => { try { localStorage.setItem('frame-scene', JSON.stringify({ version: 3, objects, settings: JSON.parse(sceneSettingsJson), interaction: { roaming: JSON.parse(roamingSettingsJson) } })) } catch { /* Large textures can exceed the browser storage quota. */ } }, 400); return () => clearTimeout(timer) }, [objects, sceneSettingsJson, roamingSettingsJson])
   useEffect(() => { localStorage.setItem('frame-left-panel', leftPanelOpen ? 'open' : 'closed') }, [leftPanelOpen])
   useEffect(() => { localStorage.setItem('frame-right-panel', rightPanelOpen ? 'open' : 'closed') }, [rightPanelOpen])
+  useEffect(() => { localStorage.setItem('frame-workspace-mode', workspaceMode) }, [workspaceMode])
   const workspaceClass = `workspace ${leftPanelOpen ? '' : 'left-panel-collapsed'} ${rightPanelOpen ? '' : 'right-panel-collapsed'}`
-  return <div className="app-shell"><Header notify={notify} showHelp={() => setHelp(true)} showExport={() => setExportOpen(true)} /><div className={workspaceClass}>{leftPanelOpen && <SceneTree onCollapse={() => setLeftPanelOpen(false)} />}<Viewport leftPanelOpen={leftPanelOpen} rightPanelOpen={rightPanelOpen} openLeftPanel={() => setLeftPanelOpen(true)} openRightPanel={() => setRightPanelOpen(true)} />{rightPanelOpen && <Inspector onCollapse={() => setRightPanelOpen(false)} />}</div><footer><span><i /> WebGL 2.0</span><span>对象 {objects.length}</span><span>自动保存</span><span className="footer-right">FRAME 0.2.0</span></footer>{toast && <div className="toast"><Check size={15} />{toast}</div>}{exportOpen && <ExportDialog objects={objects} settings={{ ...readSceneSettings(), interaction: { roaming: readRoamingSettings() } }} editor={{ grid: useEditor.getState().grid, shadows: useEditor.getState().shadows }} notify={notify} onClose={() => setExportOpen(false)} />}{help && <div className="modal-backdrop" onMouseDown={() => setHelp(false)}><div className="shortcut-modal" onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><strong>快捷键</strong><small>在视口中快速工作</small></div><IconButton icon={X} label="关闭" onClick={() => setHelp(false)} /></div><div className="shortcut-grid"><span>移动对象</span><kbd>W</kbd><span>旋转对象</span><kbd>E</kbd><span>缩放对象</span><kbd>R</kbd><span>聚焦选择</span><kbd>F</kbd><span>复制对象</span><kbd>Ctrl D</kbd><span>删除对象</span><kbd>Delete</kbd><span>撤销 / 重做</span><kbd>Ctrl Z / Shift Z</kbd><span>导出项目</span><kbd>Ctrl S</kbd></div></div></div>}</div>
+  return <div className="app-shell"><Header notify={notify} showHelp={() => setHelp(true)} showExport={() => setExportOpen(true)} workspaceMode={workspaceMode} onWorkspaceModeChange={setWorkspaceMode} />{workspaceMode === 'scene' ? <div className={workspaceClass}>{leftPanelOpen && <SceneTree onCollapse={() => setLeftPanelOpen(false)} />}<Viewport leftPanelOpen={leftPanelOpen} rightPanelOpen={rightPanelOpen} openLeftPanel={() => setLeftPanelOpen(true)} openRightPanel={() => setRightPanelOpen(true)} />{rightPanelOpen && <Inspector onCollapse={() => setRightPanelOpen(false)} />}</div> : <UiWorkspace />}<footer><span><i /> {workspaceMode === 'scene' ? 'WebGL 2.0' : 'UI Canvas'}</span><span>{workspaceMode === 'scene' ? `对象 ${objects.length}` : '页面 1'}</span><span>自动保存</span><span className="footer-right">FRAME 0.3.0</span></footer>{toast && <div className="toast"><Check size={15} />{toast}</div>}{exportOpen && <ExportDialog objects={objects} settings={{ ...readSceneSettings(), interaction: { roaming: readRoamingSettings() } }} editor={{ grid: useEditor.getState().grid, shadows: useEditor.getState().shadows }} ui={readUiProject()} notify={notify} onClose={() => setExportOpen(false)} />}{help && <div className="modal-backdrop" onMouseDown={() => setHelp(false)}><div className="shortcut-modal" onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><strong>快捷键</strong><small>在视口中快速工作</small></div><IconButton icon={X} label="关闭" onClick={() => setHelp(false)} /></div><div className="shortcut-grid"><span>移动对象</span><kbd>W</kbd><span>旋转对象</span><kbd>E</kbd><span>缩放对象</span><kbd>R</kbd><span>聚焦选择</span><kbd>F</kbd><span>复制对象</span><kbd>Ctrl D</kbd><span>删除对象</span><kbd>Delete</kbd><span>撤销 / 重做</span><kbd>Ctrl Z / Shift Z</kbd><span>导出项目</span><kbd>Ctrl S</kbd></div></div></div>}</div>
 }
 
 export default App

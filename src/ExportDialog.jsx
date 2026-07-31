@@ -6,7 +6,8 @@ function Toggle({ checked, onChange, label, note, disabled = false }) {
   return <label className={`export-toggle ${disabled ? 'disabled' : ''}`}><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span><Check size={11} /></span><div><strong>{label}</strong><small>{note}</small></div></label>
 }
 
-export function ExportDialog({ objects, settings, editor, onClose, notify }) {
+export function ExportDialog({ objects, settings, editor, ui, onClose, notify }) {
+  const [exportMode, setExportMode] = useState('scene')
   const [framework, setFramework] = useState('react')
   const [language, setLanguage] = useState('ts')
   const [folderName, setFolderName] = useState('three_scene')
@@ -22,16 +23,18 @@ export function ExportDialog({ objects, settings, editor, onClose, notify }) {
   const folderSupported = typeof window.showDirectoryPicker === 'function'
   const moduleExtension = language === 'ts' ? 'ts' : 'js'
   const componentExtension = framework === 'react' ? (language === 'ts' ? 'tsx' : 'jsx') : 'vue'
-  const blocked = preflight.checking || preflight.issues.length > 0
+  const needsScene = exportMode !== 'ui'
+  const blocked = needsScene && (preflight.checking || preflight.issues.length > 0)
 
   useEffect(() => {
     let active = true
     setPreflight((value) => ({ ...value, checking: true }))
+    if (!needsScene) { setPreflight({ checking: false, references: 0, issues: [] }); return () => { active = false } }
     validateSceneAssets(objects).then((result) => { if (active) setPreflight({ checking: false, ...result }) })
     return () => { active = false }
-  }, [objects])
+  }, [objects, needsScene])
 
-  const build = () => buildSceneProject({ framework, language, folderName, objects, settings, editor, includeAssets, includeReadme, optimizeDraco, optimizeKtx2 })
+  const build = () => buildSceneProject({ framework, language, folderName, exportMode, objects, settings, editor, ui, includeAssets, includeReadme, optimizeDraco, optimizeKtx2 })
   const runExport = async (type) => {
     setBusy(true); setError(''); setProgress(type === 'folder' ? '等待选择保存位置' : '正在整理项目文件')
     try {
@@ -55,14 +58,19 @@ export function ExportDialog({ objects, settings, editor, onClose, notify }) {
     <div className="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title" onMouseDown={(event) => event.stopPropagation()}>
       <div className="export-head"><div className="export-head-icon"><Package size={18} /></div><div><strong id="export-title">导出可复用项目</strong><small>生成组件、运行时、配置、优化脚本和本地资源</small></div><button aria-label="关闭导出" title="关闭" disabled={busy} onClick={onClose}><X size={16} /></button></div>
       <div className="export-body">
+        <div className="export-field"><label>导出内容</label><div className="export-mode-grid">
+          <button className={exportMode === 'scene' ? 'active' : ''} onClick={() => setExportMode('scene')}><span>3D</span><strong>仅 3D 场景</strong><small>Three.js 场景与运行时</small></button>
+          <button className={exportMode === 'ui' ? 'active' : ''} onClick={() => setExportMode('ui')}><span>UI</span><strong>仅 UI 画布</strong><small>页面、图层与样式</small></button>
+          <button className={exportMode === 'composite' ? 'active' : ''} onClick={() => setExportMode('composite')}><span>3D+UI</span><strong>复合项目</strong><small>场景与交互覆盖层</small></button>
+        </div></div>
         <div className="export-target-grid">
           <div className="export-field"><label>目标框架</label><div className="export-framework"><button className={framework === 'react' ? 'active' : ''} onClick={() => setFramework('react')}><FileCode2 size={15} /><span><strong>React</strong><small>组件模板</small></span></button><button className={framework === 'vue' ? 'active' : ''} onClick={() => setFramework('vue')}><FileCode2 size={15} /><span><strong>Vue 3</strong><small>组件模板</small></span></button></div></div>
           <div className="export-field"><label>代码语言</label><div className="export-language"><button className={language === 'ts' ? 'active' : ''} onClick={() => setLanguage('ts')}>TypeScript</button><button className={language === 'js' ? 'active' : ''} onClick={() => setLanguage('js')}>JavaScript</button></div></div>
         </div>
         <div className="export-field"><label htmlFor="export-folder">项目文件夹</label><div className="export-folder-input"><FolderOpen size={14} /><input id="export-folder" value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="three_scene" /><span>/</span></div></div>
-        <div className="export-options"><Toggle checked={includeAssets} onChange={setIncludeAssets} label="复制场景资源" note={`${summary.models} 个模型 · ${summary.textures} 张贴图`} /><Toggle checked={includeReadme} onChange={setIncludeReadme} label="生成接入文档" note="依赖、组件用法与许可提示" /><Toggle checked={optimizeDraco} disabled={!includeAssets} onChange={setOptimizeDraco} label="Draco 几何压缩" note="生成可缓存的模型优化脚本" /><Toggle checked={optimizeKtx2} disabled={!includeAssets} onChange={setOptimizeKtx2} label="KTX2 / UASTC" note="压缩 GLB 内嵌纹理" /></div>
-        <div className={`export-preflight ${preflight.issues.length ? 'error' : ''}`}>{preflight.checking ? <><span className="preflight-spinner" />正在检查场景资源</> : preflight.issues.length ? <><AlertTriangle size={13} /><span><strong>{preflight.issues.length} 个资源不可用</strong><small>{preflight.issues.slice(0, 2).map((issue) => `${issue.object} / ${issue.kind}`).join('，')}</small></span></> : <><ShieldCheck size={14} /><span><strong>资源检查通过</strong><small>{preflight.references} 个外部资源可正常读取</small></span></>}</div>
-        <div className="export-tree"><div><span>项目结构</span><small>{summary.objects} 个场景对象</small></div><pre>{`${folderName || 'three_scene'}/\n├─ package.json\n├─ .frame-export-manifest.json\n├─ README.md\n├─ scripts/optimize-assets.mjs\n└─ src/\n   ├─ components/ThreeScene.${componentExtension}\n   ├─ config/scene.config.${moduleExtension}\n   ├─ runtime/createThreeScene.${moduleExtension}\n   ${language === 'ts' ? '├─ types.ts\n   ' : ''}├─ styles/three-scene.css\n   └─ assets/{ models, textures, decoders }`}</pre></div>
+        <div className="export-options"><Toggle checked={includeAssets && needsScene} disabled={!needsScene} onChange={setIncludeAssets} label="复制场景资源" note={needsScene ? `${summary.models} 个模型 · ${summary.textures} 张贴图` : 'UI 模式不包含三维资源'} /><Toggle checked={includeReadme} onChange={setIncludeReadme} label="生成接入文档" note="依赖、组件用法与许可提示" /><Toggle checked={optimizeDraco && needsScene} disabled={!includeAssets || !needsScene} onChange={setOptimizeDraco} label="Draco 几何压缩" note="生成可缓存的模型优化脚本" /><Toggle checked={optimizeKtx2 && needsScene} disabled={!includeAssets || !needsScene} onChange={setOptimizeKtx2} label="KTX2 / UASTC" note="压缩 GLB 内嵌纹理" /></div>
+        <div className={`export-preflight ${preflight.issues.length ? 'error' : ''}`}>{!needsScene ? <><ShieldCheck size={14} /><span><strong>UI 工程检查通过</strong><small>{ui?.nodes?.length || 0} 个 UI 图层将被导出</small></span></> : preflight.checking ? <><span className="preflight-spinner" />正在检查场景资源</> : preflight.issues.length ? <><AlertTriangle size={13} /><span><strong>{preflight.issues.length} 个资源不可用</strong><small>{preflight.issues.slice(0, 2).map((issue) => `${issue.object} / ${issue.kind}`).join('，')}</small></span></> : <><ShieldCheck size={14} /><span><strong>资源检查通过</strong><small>{preflight.references} 个外部资源可正常读取</small></span></>}</div>
+        <div className="export-tree"><div><span>项目结构</span><small>{exportMode === 'scene' ? `${summary.objects} 个场景对象` : exportMode === 'ui' ? `${ui?.nodes?.length || 0} 个 UI 图层` : `${summary.objects} 个对象 + ${ui?.nodes?.length || 0} 个图层`}</small></div><pre>{`${folderName || 'three_scene'}/\n├─ package.json\n├─ README.md\n└─ src/\n   ├─ components/${exportMode === 'scene' ? 'ThreeScene' : exportMode === 'ui' ? 'UiCanvas' : 'CompositeScene'}.${componentExtension}\n   ${exportMode !== 'scene' ? `├─ config/ui.config.${moduleExtension}\n   ` : ''}${exportMode !== 'ui' ? `├─ config/scene.config.${moduleExtension}\n   ├─ runtime/createThreeScene.${moduleExtension}\n   ` : ''}└─ styles/${exportMode === 'scene' ? 'three-scene' : exportMode === 'ui' ? 'ui-canvas' : 'composite-scene'}.css`}</pre></div>
         {(progress || error) && <div className={`export-status ${error ? 'error' : ''}`}>{error || progress}</div>}
       </div>
       <div className="export-actions"><button className="export-zip" disabled={busy || blocked} onClick={() => runExport('zip')}><Download size={14} />下载 ZIP</button><button className="export-primary" disabled={busy || blocked || !folderSupported} title={folderSupported ? '选择父目录并增量写入项目文件夹' : '当前浏览器不支持目录选择，请下载 ZIP'} onClick={() => runExport('folder')}><FolderOpen size={14} />{busy ? '正在导出…' : '选择位置并导出'}</button></div>
