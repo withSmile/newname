@@ -498,7 +498,7 @@ function Scene() {
       {worldAxesEnabled && <WorldAxes size={worldAxesSize} position={worldAxesPosition} opacity={worldAxesOpacity} depthTest={worldAxesDepthTest} />}
       <ContactShadows key={contactShadowKey} frames={1} position={[0, 0.01, 0]} opacity={shadows ? shadowOpacity : 0} scale={Math.min(sceneSize, 30) * 0.5} blur={shadowBlur} far={Math.max(6, sceneSize * 0.2)} />
       {projection === 'perspective' ? <PerspectiveCamera makeDefault position={[6.5, 4.8, 7.5]} fov={cameraFov} near={cameraNear} far={cameraFar} /> : <OrthographicCamera makeDefault position={[6.5, 4.8, 7.5]} zoom={72} near={cameraNear} far={cameraFar} />}
-      <OrbitControls makeDefault target={[0, 0.7, 0]} minDistance={Math.max(cameraNear * 2, 0.2)} maxDistance={Math.min(cameraFar * 0.8, Math.max(22, sceneSize * 1.5))} />
+      <OrbitControls makeDefault target={[0, 0.7, 0]} mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY }} minDistance={Math.max(cameraNear * 2, 0.2)} maxDistance={Math.min(cameraFar * 0.8, Math.max(22, sceneSize * 1.5))} />
       <GizmoHelper alignment="bottom-right" margin={[76, 58]}><GizmoViewport axisColors={['#e35d35', '#6cac68', '#5c85c7']} labelColor="white" /></GizmoHelper>
     </>
   )
