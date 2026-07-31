@@ -1,4 +1,5 @@
 import { Activity, Flame, CloudRain, Snowflake, Sparkles, Wind, Code2, RotateCcw } from 'lucide-react'
+import React from 'react'
 import { PARTICLE_PRESETS, useParticles } from './particleStore'
 
 const icons = { fireworks: Sparkles, fire: Flame, rain: CloudRain, snow: Snowflake, mist: Wind, code: Code2 }

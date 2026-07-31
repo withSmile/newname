@@ -1,4 +1,5 @@
 import { useFrame } from '@react-three/fiber'
+import React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { PARTICLE_PRESETS, useParticles } from './particleStore'
