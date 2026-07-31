@@ -1038,7 +1038,7 @@ function Viewport({ leftPanelOpen, rightPanelOpen, openLeftPanel, openRightPanel
     <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, preserveDrawingBuffer: true, toneMapping: THREE.ACESFilmicToneMapping }}>
       <Scene /><ParticleRuntime /><AnimationRuntime objectRefs={SCENE_OBJECT_REFS} /><PhysicsRuntime objectRefs={SCENE_OBJECT_REFS} /><RoamingRuntime objectRefs={SCENE_OBJECT_REFS} /><FocusController /><RendererSettings /><PostProcessing />
     </Canvas>
-    <div className="viewport-hint">左键选择 · 右键旋转 · 滚轮缩放</div>
+    <div className="viewport-hint">左键旋转视角 · 右键平移视角 · 滚轮缩放</div>
     <div className="viewport-info">{selected ? `${selected.name} · ${selected.type}` : '未选择对象'}</div>
   </main>
 }
