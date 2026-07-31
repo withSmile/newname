@@ -33,6 +33,8 @@ import { AnimationPanel } from './features/animation/AnimationPanel'
 import { AnimationRuntime } from './features/animation/AnimationRuntime'
 import { PhysicsPanel } from './features/physics/PhysicsPanel'
 import { PhysicsRuntime } from './features/physics/PhysicsRuntime'
+import { ParticleRuntime } from './features/particles/ParticleRuntime'
+import { ParticlePanel } from './features/particles/ParticlePanel'
 
 const geometryFor = (type) => {
   const center = (geometry) => { geometry.computeBoundingBox(); geometry.center(); geometry.computeBoundingSphere(); if (geometry.attributes.uv && !geometry.attributes.uv1) geometry.setAttribute('uv1', geometry.attributes.uv.clone()) }
@@ -677,7 +679,7 @@ function CollapsibleSection({ children, className = '', defaultOpen = true }) {
 }
 
 function Inspector({ onCollapse }) {
-  const [tab, setTab] = useState(() => { const panel = new URLSearchParams(window.location.search).get('panel'); return ['scene', 'post', 'interaction', 'animation', 'physics'].includes(panel) ? panel : 'object' })
+  const [tab, setTab] = useState(() => { const panel = new URLSearchParams(window.location.search).get('panel'); return ['scene', 'post', 'interaction', 'animation', 'physics', 'particles'].includes(panel) ? panel : 'object' })
   const [sectionsExpanded, setSectionsExpanded] = useState(true)
   const { objects, selectedId, updateObject } = useEditor()
   const object = objects.find((o) => o.id === selectedId)
@@ -691,8 +693,8 @@ function Inspector({ onCollapse }) {
   }, [tab])
   return <aside className="right-panel panel">
     <div className="panel-heading"><span>检查器</span><div className="panel-heading-actions"><IconButton icon={sectionsExpanded ? ChevronsUp : ChevronsDown} label={sectionsExpanded ? '全部收起' : '全部展开'} onClick={toggleSections} /><IconButton icon={PanelRightClose} label="收起右侧栏" onClick={onCollapse} /></div></div>
-    <div className="inspector-tabs"><button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>对象</button><button className={tab === 'scene' ? 'active' : ''} onClick={() => setTab('scene')}>场景</button><button className={tab === 'post' ? 'active' : ''} onClick={() => setTab('post')}>后期</button><button className={tab === 'animation' ? 'active' : ''} onClick={() => setTab('animation')}>动画</button><button className={tab === 'physics' ? 'active' : ''} onClick={() => setTab('physics')}>物理</button><button className={tab === 'interaction' ? 'active' : ''} onClick={() => setTab('interaction')}>交互</button></div>
-    {tab === 'scene' ? <SceneInspector /> : tab === 'post' ? <PostProcessingPanel /> : tab === 'animation' ? <AnimationPanel /> : tab === 'physics' ? <PhysicsPanel /> : tab === 'interaction' ? <RoamingPanel /> : !object ? <div className="no-selection"><MousePointer2 size={24} /><span>选择一个对象</span></div> : <>
+    <div className="inspector-tabs"><button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>对象</button><button className={tab === 'scene' ? 'active' : ''} onClick={() => setTab('scene')}>场景</button><button className={tab === 'post' ? 'active' : ''} onClick={() => setTab('post')}>后期</button><button className={tab === 'animation' ? 'active' : ''} onClick={() => setTab('animation')}>动画</button><button className={tab === 'physics' ? 'active' : ''} onClick={() => setTab('physics')}>物理</button><button className={tab === 'particles' ? 'active' : ''} onClick={() => setTab('particles')}>粒子</button><button className={tab === 'interaction' ? 'active' : ''} onClick={() => setTab('interaction')}>交互</button></div>
+    {tab === 'scene' ? <SceneInspector /> : tab === 'post' ? <PostProcessingPanel /> : tab === 'animation' ? <AnimationPanel /> : tab === 'physics' ? <PhysicsPanel /> : tab === 'particles' ? <ParticlePanel /> : tab === 'interaction' ? <RoamingPanel /> : !object ? <div className="no-selection"><MousePointer2 size={24} /><span>选择一个对象</span></div> : <>
     <div className="object-title"><div className="object-icon"><Box size={16} /></div><div><input value={object.name} onChange={(e) => updateObject(object.id, { name: e.target.value }, false)} /><small>{object.type.toUpperCase()} / {object.id.slice(-6)}</small></div></div>
     <CollapsibleSection><h3><ChevronDown size={13} /> 变换</h3>
       <VectorInput label="位置" value={object.position} onChange={(position) => updateObject(object.id, { position })} />
@@ -1034,7 +1036,7 @@ function Viewport({ leftPanelOpen, rightPanelOpen, openLeftPanel, openRightPanel
     <div className="viewport-label"><button onClick={() => setProjection(projection === 'perspective' ? 'orthographic' : 'perspective')}><Camera size={12} />{projection === 'perspective' ? '透视' : '正交'}</button><select value={shading} onChange={(e) => setShading(e.target.value)}><option value="solid">实体</option><option value="wireframe">线框</option></select></div>
     <div className="viewport-options"><IconButton icon={Grid3X3} label="网格" active={grid} onClick={toggleGrid} /><IconButton icon={Lightbulb} label="阴影" active={shadows} onClick={toggleShadows} /><IconButton icon={Focus} label="聚焦对象 (F)" onClick={() => window.dispatchEvent(new Event('frame-focus'))} /></div>
     <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, preserveDrawingBuffer: true, toneMapping: THREE.ACESFilmicToneMapping }}>
-      <Scene /><AnimationRuntime objectRefs={SCENE_OBJECT_REFS} /><PhysicsRuntime objectRefs={SCENE_OBJECT_REFS} /><RoamingRuntime objectRefs={SCENE_OBJECT_REFS} /><FocusController /><RendererSettings /><PostProcessing />
+      <Scene /><ParticleRuntime /><AnimationRuntime objectRefs={SCENE_OBJECT_REFS} /><PhysicsRuntime objectRefs={SCENE_OBJECT_REFS} /><RoamingRuntime objectRefs={SCENE_OBJECT_REFS} /><FocusController /><RendererSettings /><PostProcessing />
     </Canvas>
     <div className="viewport-hint">左键选择 · 右键旋转 · 滚轮缩放</div>
     <div className="viewport-info">{selected ? `${selected.name} · ${selected.type}` : '未选择对象'}</div>
