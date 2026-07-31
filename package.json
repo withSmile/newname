@@ -20,6 +20,7 @@
     "react-dom": "^19.1.1",
     "three": "^0.180.0",
     "three-mesh-bvh": "^0.9.13",
+    "three.quarks": "^0.16.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
