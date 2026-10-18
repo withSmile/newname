@@ -1,0 +1,218 @@
+/* Shared visual tokens for the editor chrome, never for scene or UI artwork. */
+:root {
+  --font-ui: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-code: Consolas, "Cascadia Mono", monospace;
+  --bg: #121618;
+  --panel: #191e21;
+  --panel-2: #202629;
+  --surface: #232a2e;
+  --surface-hover: #2d363b;
+  --surface-active: #353f45;
+  --input: #141a1d;
+  --line: #303a40;
+  --line-strong: #4b5961;
+  --text: #edf0f2;
+  --text-soft: #c4ccd1;
+  --muted: #a0adb5;
+  --muted-2: #8e9ca5;
+  --accent: #e77b52;
+  --accent-hover: #f38d66;
+  --accent-soft: #392b26;
+  --accent-line: #926049;
+  --accent-text: #ffc5ab;
+  --danger: #ed9999;
+  --radius: 4px;
+  --control-h: 30px;
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+.right-panel, .ui-layer-panel {
+  --control-h: 30px;
+  --field-h: 54px;
+  --panel-pad: 12px;
+  --ui-label: 11px;
+  --ui-value: 12px;
+  --ui-muted: var(--muted);
+  --ui-text: var(--text);
+  --ui-surface: var(--surface);
+  --ui-surface-raised: var(--panel-2);
+  --ui-input: var(--input);
+  --ui-border: var(--line);
+  --ui-border-hover: var(--line-strong);
+  --ui-focus: var(--accent);
+}
+.header, footer, .workspace-switch, .inspector-navigation, .ui-canvas-toolbar { background: var(--bg); border-color: var(--line); }
+.panel, .particle-panel { background: var(--panel); color: var(--text); }
+.panel .panel-heading, .assets-heading, .tree-root, .ui-panel-label, .ui-page-row { background: var(--panel); border-color: var(--line); color: var(--text-soft); }
+.panel .panel-heading > span { font-size: 12px; }
+.panel .panel-heading small, .brand small, .save-state { color: var(--muted-2); font-size: 10px; }
+.panel :is(.object-title, .ui-inspector-title, .scene-summary, .animation-summary, .physics-summary, .roaming-status, .particle-hero) { background: var(--panel-2); border-color: var(--line); }
+.object-title input, .ui-inspector-title input { color: var(--text); font: 600 12px var(--font-ui); }
+.object-title small, .ui-inspector-title small, .scene-summary small { color: var(--muted-2); font-size: 10px; }
+.icon-button, .header .icon-button { border-radius: var(--radius); color: var(--muted); }
+.icon-button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-hover); color: var(--text); }
+.icon-button.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-text); box-shadow: none; }
+.brand-mark, .add-button { background: var(--accent); border-color: var(--accent); }
+.export-button, .add-button { border-radius: var(--radius); font-weight: 500; }
+.workspace-switch button.active, .inspector-navigation button.active,
+.asset-tabs button.active, .ui-template-grid button.active { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-line); box-shadow: inset 0 -2px var(--accent); }
+.inspector-navigation button { border-radius: var(--radius); color: var(--muted); }
+.tree-item.selected, .ui-layer-list > button.selected { background: var(--accent-soft); color: var(--text); box-shadow: inset 3px 0 var(--accent); }
+.tree-item:hover, .ui-layer-list > button:hover { background: var(--surface-hover); }
+.asset-tabs { background: var(--panel); }
+.asset-glyph, .object-icon, .scene-orb, .particle-hero-icon, .model-effect-target-icon { border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); color: var(--accent); }
+.panel :is(section, .animation-timeline, .animation-add, .animation-presets, .particle-runtime, .particle-master) { border-color: var(--line); }
+.panel section > h3, .panel .collapsible-section > h3, .particle-section-title h3 { font: 600 11px var(--font-ui); color: var(--text-soft); }
+.right-panel section > h3 svg { color: var(--muted); }
+.panel :is(.animation-summary, .physics-summary, .roaming-status, .particle-hero) strong { font-size: 12px; color: var(--text); }
+.panel :is(.animation-summary, .physics-summary, .roaming-status, .particle-hero) small { font-size: 10px; color: var(--muted); }
+.panel :is(.animation-summary, .physics-summary) > svg { color: var(--accent); }
+.physics-global > label, .physics-global > div, .physics-toggle, .physics-flags, .physics-axis-lock, .animation-track-options { color: var(--muted); font-size: 11px; background-color: var(--panel-2); border-color: var(--line); }
+.physics-events > div, .physics-ownership { background: var(--panel-2); border-color: var(--line); border-radius: var(--radius); }
+.physics-events > div > svg { color: var(--muted); }
+.physics-events strong, .physics-ownership strong { color: var(--text-soft); }
+.physics-events small, .physics-ownership span { font-size: 10px; color: var(--muted); line-height: 1.5; }
+.animation-timeline, .animation-presets, .animation-add { background: var(--panel); }
+
+/* One control language across animation, physics, roaming and particle tools. */
+.panel :is(.animation-add, .animation-presets, .physics-presets, .physics-actions, .animation-transport, .roaming-actions, .manual-launch, .particle-actions, .model-effect-presets, .roaming-curve-types) button,
+.panel :is(.physics-summary, .roaming-status) > button,
+.mode-segments button, .quality-segments button, .model-segment button,
+.ui-component-grid button, .model-effect-footer button {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 11px;
+  box-shadow: none;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.panel :is(.animation-add, .animation-presets, .physics-presets, .physics-actions, .animation-transport, .roaming-actions, .manual-launch, .particle-actions, .model-effect-presets, .roaming-curve-types) button:hover:not(:disabled),
+.ui-component-grid button:hover { border-color: var(--line-strong); background: var(--surface-hover); color: var(--text); transform: none; }
+.panel :is(.animation-transport, .roaming-actions, .manual-launch, .particle-actions) button.primary,
+.panel :is(.model-effect-presets, .roaming-curve-types) button.active,
+.mode-segments button.active, .quality-segments button.active, .model-segment button.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-text); box-shadow: none; }
+.panel :is(.animation-presets, .physics-presets) button { min-height: 50px; height: auto; grid-template-rows: 20px 16px; }
+.panel :is(.animation-presets, .physics-presets) button span { font-size: 11px; }
+.panel :is(.animation-presets, .physics-presets) button small { color: var(--muted-2); font-size: 10px; }
+.panel :is(.animation-presets, .physics-presets, .physics-actions) button svg { color: var(--accent); }
+.panel :is(.animation-track, .clip-controller, .keyframe-editor, .physics-toggle, .physics-size, .physics-vector, .physics-axis-lock, .particle-vector, .particle-colors label, .particle-inline-toggle) { background: var(--panel-2); border-color: var(--line); border-radius: var(--radius); }
+.panel :is(.animation-track-grid, .physics-selects, .physics-fields, .roaming-settings, .ui-field-grid) label,
+.panel :is(.particle-field, .ui-wide-field) { min-width: 0; height: var(--field-h); padding: 7px 8px; grid-template-rows: 16px minmax(22px, auto); background: var(--panel-2); border-color: var(--line); border-radius: var(--radius); }
+.panel :is(.animation-track-grid, .physics-selects, .physics-fields, .roaming-settings, .ui-field-grid) label > span,
+.panel :is(.particle-field, .particle-vector, .ui-wide-field) > span,
+.particle-colors span, .particle-inline-toggle span { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.panel :is(input[type=number], select, .annotation-text-input), .readout, .color-control { border-radius: var(--radius); border-color: var(--line-strong); color: var(--text); background-color: var(--input); }
+.panel :is(input[type=number], .readout) { font-family: var(--font-code); font-size: 12px; font-weight: 500; text-shadow: none; }
+.panel :is(.animation-track-grid, .physics-selects, .physics-fields, .roaming-settings, .ui-field-grid, .particle-field) :is(input, select) { width: 100%; height: 24px; min-width: 0; border: 0; background: transparent; }
+.panel input[type=range], .panel input[type=checkbox] { accent-color: var(--accent); }
+.toggle-row button.on { background: var(--accent); }
+.range-setting-head > label, .right-panel .property-row > label, .right-panel .toggle-row > span { color: var(--muted); font-size: 11px; }
+.range-setting-head .range-value { border-color: var(--line-strong); background: var(--input); }
+.right-panel .range-value input { color: var(--text); }
+.ui-inspector section { padding-bottom: 12px; }
+.ui-inspector .ui-wide-field { height: auto; min-height: 62px; gap: 4px; margin-bottom: 8px; }
+.ui-inspector .ui-wide-field > input { text-align: left; font: 12px var(--font-ui); }
+.ui-wide-field .color-control { margin: 0; min-width: 0; width: 100%; height: 30px; }
+.ui-field-grid { row-gap: 8px; }
+.ui-page-row small, .ui-panel-label { font-size: 10px; color: var(--muted); }
+.ui-canvas-toolbar button, .ui-canvas-toolbar select { color: var(--text-soft); border-radius: var(--radius); }
+
+/* Particle tools use the same surfaces and selection treatment. */
+.particle-panel { height: auto; overflow: visible; font-family: var(--font-ui); --particle-accent: var(--accent); }
+.particle-panel .particle-hero-icon { border-radius: var(--radius); background: var(--surface); }
+.particle-panel .particle-presets button { border-radius: var(--radius); background: var(--surface); border-color: var(--line); box-shadow: none; height: 60px; }
+.particle-panel .particle-presets button:hover { transform: none; border-color: var(--line-strong); }
+.particle-panel .particle-presets button.active { background: var(--accent-soft); border-color: var(--accent-line); box-shadow: none; }
+.particle-panel .particle-presets button > i { border-radius: var(--radius); background: var(--panel); color: var(--muted); }
+.particle-panel .particle-presets button.active > i { background: var(--accent-soft); color: var(--accent); }
+.particle-panel .particle-presets button > span { font-size: 11px; }
+.particle-panel .particle-presets button small { font-size: 10px; color: var(--muted); }
+.particle-panel .particle-presets button em { display: none; }
+.particle-panel .particle-meter i { background: var(--accent); box-shadow: none; }
+.particle-panel .particle-master b { font-size: 11px; }
+.particle-panel .particle-master small { color: var(--muted); font-size: 10px; }
+.particle-panel .particle-section-title > span { color: var(--muted); background: var(--surface); border-color: var(--line); border-radius: var(--radius); font-size: 10px; }
+.particle-panel .particle-group > h3 { height: 30px; margin-bottom: 8px; padding: 0; }
+.particle-panel .particle-group > h3 svg { color: var(--accent); }
+.particle-panel .particle-vector input { background: var(--input); }
+
+/* Model effects share the inspector's neutral surfaces and orange accents. */
+.scene-effect-panel { gap: 10px; padding: 12px; color: var(--text); }
+.scene-effect-panel section { padding: 12px; border-color: var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.scene-effect-panel section > h3 { height: auto; padding: 0; margin: 0 0 12px; color: var(--text-soft); }
+.model-effect-empty { border-color: var(--line-strong); border-radius: var(--radius); background: var(--panel-2); color: var(--muted); }
+.model-effect-empty strong, .model-effect-target strong, .screen-fluid-heading strong { color: var(--text); font-size: 12px; }
+.model-effect-target-icon { background: var(--surface); color: var(--accent); border-color: var(--line-strong); border-radius: var(--radius); }
+.model-effect-target span, .screen-fluid-heading small, .model-effect-footer span { color: var(--muted); font-size: 10px; }
+.model-effect-switch input:checked + i { background: var(--accent); }
+.model-effect-switch input:checked + i:after { background: #fff; box-shadow: none; }
+.model-effect-switch input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 3px; }
+.scene-effect-panel .model-effect-presets button { min-height: 70px; padding: 9px 8px; }
+.model-effect-presets b { color: var(--text); font-size: 11px; }
+.model-effect-presets small, .model-effect-presets button.active small { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.scene-effect-color, .scene-effect-slider span { color: var(--muted); font-size: 11px; }
+.scene-effect-color input { border-color: var(--line-strong); border-radius: var(--radius); background: var(--input); }
+.scene-effect-slider b { color: var(--text); font: 12px var(--font-code); }
+.scene-effect-slider input { accent-color: var(--accent); }
+.screen-fluid-heading > div { color: var(--accent); }
+.model-effect-footer strong { color: var(--text-soft); font-size: 11px; }
+.model-effect-footer button { color: var(--danger); }
+.model-effect-footer button:disabled { background: var(--surface); border-color: var(--line); color: var(--muted); }
+
+/* Dialogs and menus share the same chrome as the workspace. */
+.model-import-dialog, .export-modal, .shortcut-modal, .add-menu, .file-menu { border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--text); }
+.model-import-head, .export-head, .modal-head, .export-actions { background: var(--panel-2); border-color: var(--line); }
+.export-field > label, .export-options label, .export-toggle, .export-preflight small { color: var(--muted); font-size: 11px; }
+.export-framework button, .export-mode-grid button, .export-language button { border-radius: var(--radius); border-color: var(--line); background: var(--surface); color: var(--text-soft); }
+.export-framework button.active, .export-mode-grid button.active, .export-language button.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-text); }
+.export-actions .export-primary { background: var(--accent); border-color: var(--accent); color: #171b1d; }
+.panel button:disabled { opacity: .4; cursor: not-allowed; }
+.panel button:focus-visible, .panel input:focus-visible, .panel select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Editor icons use orange in both default and selected states. */
+.app-shell svg.lucide { color: var(--accent); }
+.app-shell :is(.header, .panel, .toolbar, .viewport-label, .viewport-options, .ui-canvas-toolbar, .export-modal, .model-import-dialog, .shortcut-modal, .side-panel-reveal) svg.lucide {
+  color: var(--accent);
+}
+.app-shell :is(.panel, .header, .toolbar, .viewport-options, .ui-canvas-toolbar, .export-modal) :is(button.active, button[aria-pressed=true], .selected, .primary, .add-button, .export-primary) svg.lucide {
+  color: var(--accent);
+}
+.app-shell .panel :is(.animation-summary, .physics-summary, .physics-actions, .physics-events, .particle-hero-icon, .model-effect-target-icon, .screen-fluid-heading, .animation-presets, .physics-presets, .ui-component-grid, .asset-glyph) svg.lucide {
+  color: var(--accent);
+}
+.app-shell .header .add-button svg.lucide,
+.app-shell .export-actions .export-primary svg.lucide { color: #fff; }
+
+.scene-object-menu { position: fixed; z-index: 150; width: 200px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 12px 36px #0008; }
+.scene-object-menu-title { padding: 8px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.scene-object-menu button { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 8px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text-soft); font-size: 12px; text-align: left; cursor: pointer; }
+.scene-object-menu button:hover, .scene-object-menu button:focus-visible { background: var(--surface-hover); color: var(--text); }
+.scene-object-menu button svg.lucide { color: var(--accent); }
+.scene-object-menu button.danger { color: var(--danger); }
+.tree-rename { display: flex; align-items: center; gap: 8px; padding: 3px 12px; height: 34px; color: var(--accent); }
+.tree-rename input { width: 100%; min-width: 0; height: 28px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--input); color: var(--text); font-size: 12px; }
+.viewport-label select[aria-label="标准视图"] { max-width: 90px; }
+.nova-scene-button { display: flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 10px; border: 1px solid #6e5742; border-radius: 4px; background: #302b25; color: #f0be9d; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.nova-scene-button:hover { border-color: var(--accent); background: #443126; }
+.roaming-show-path { display: flex; align-items: center; justify-content: space-between; margin: 0 12px 10px; color: var(--muted); font-size: 11px; }
+@media (max-width: 1100px) { .nova-scene-button span { display: none; } }
+.performance-monitor { position: absolute; left: 14px; top: 64px; z-index: 8; width: 224px; color: #b9c4ca; border: 1px solid #354047; border-radius: 7px; background: rgba(15,22,27,.92); font-size: 11px; font-variant-numeric: tabular-nums; pointer-events: auto; }
+.performance-heading { display: flex; align-items: center; gap: 7px; width: 100%; padding: 9px 10px; color: #eea477; background: transparent; border: 0; cursor: pointer; }
+.performance-heading strong { margin-left: auto; color: #8ed3a5; font-size: 12px; }
+.performance-monitor.fair strong { color: #edc17e; }
+.performance-monitor.slow strong { color: #f18b76; }
+.performance-monitor dl { display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 0 10px; margin: 1px 0 10px; }
+.performance-monitor dd { margin: 0; color: #e0e8ed; }
+.performance-monitor small { display: block; border-top: 1px solid #2e383f; padding: 7px 10px; color: #86949e; font-size: 10px; }
+.tree-item.locked { color: #89949b; }
+.tree-item.locked .tree-actions i:first-child { color: #ff9b65; opacity: 1; }
+.tree-actions i[role=button]:focus-visible { outline: 1px solid #ff9b65; outline-offset: 3px; }
+.tree-item:not(:hover):not(.selected) .tree-actions i[role=button] { opacity: .55; color: #d68d64; }
+.tree-item.locked:not(:hover):not(.selected) .tree-actions i[role=button] { opacity: 1; color: #ff9b65; }
+.scene-lock-toggle { display:flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; flex-shrink:0; color:#f5ac7c; background:#30271f; border:1px solid #77513a; border-radius:5px; white-space:nowrap; cursor:pointer; font-size:12px; }
+.scene-lock-toggle[aria-pressed=true] { color:#fff2e9; background:#a75129; border-color:#ffab78; box-shadow:0 0 0 2px #ff995522; }
+.toolbar.scene-locked > :not(.scene-lock-toggle) { opacity:.3; pointer-events:none; }
+.scene-lock-notice { padding:36px 22px; display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center; color:#e9a16e; }
+.scene-lock-notice p { font-size:12px; color:#9ba6ad; line-height:1.8; }
+.scene-lock-notice button { padding:8px 18px; border:1px solid #a36945; border-radius:5px; color:#ffbc91; background:#33261f; cursor:pointer; }

@@ -1,0 +1,87 @@
+/* Workspace structure and density. Keep scene rendering styles in styles.css. */
+:root { --muted: #a0aaae; --muted-2: #8b969c; }
+.app-shell { grid-template-rows: 56px minmax(0, 1fr) 28px; }
+.header { height: 56px; gap: 8px; }
+.brand { width: 112px; flex-shrink: 0; }
+.brand small { font-size: 9px; letter-spacing: 1px; }
+.workspace-switch { margin-left: 0; height: 36px; }
+.workspace-switch button { font-size: 12px; height: 28px; }
+.project-title { position: static; transform: none; margin-left: auto; padding: 0 12px; min-width: 0; white-space: nowrap; }
+.header-actions { margin-left: auto; flex-shrink: 0; }
+.add-button, .export-button { font-size: 12px; height: 34px; }
+.workspace { --left-width: 232px; --right-width: 336px; grid-template-columns: var(--left-width) minmax(0, 1fr) var(--right-width); min-width: 0; }
+.workspace.left-panel-collapsed { grid-template-columns: 0 minmax(0, 1fr) var(--right-width); }
+.workspace.right-panel-collapsed { grid-template-columns: var(--left-width) minmax(0, 1fr) 0; }
+.workspace.left-panel-collapsed.right-panel-collapsed { grid-template-columns: 0 minmax(0, 1fr) 0; }
+.panel, .viewport { min-width: 0; }
+.left-panel > :not(.tree-list):not(.asset-library) { flex-shrink: 0; }
+.tree-list { flex: 1 1 45%; min-height: 90px; overflow: auto; }
+.assets-heading { margin-top: 0; }
+.asset-library { flex: 1 1 35%; min-height: 100px; overflow: auto; }
+.asset-item { flex-shrink: 0; }
+.tree-item { height: 34px; font-size: 12px; }
+.tree-search input, .tree-root, .assets-heading, .panel-heading { font-size: 12px; }
+.asset-item strong { font-size: 11px; }
+.asset-item small, .asset-tabs button { font-size: 10px; }
+.tree-empty { padding: 22px 12px; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: center; }
+.right-panel { scrollbar-gutter: stable; }
+.right-panel .panel-heading { top: 0; font-size: 12px; }
+.inspector-navigation { position: sticky; top: 40px; z-index: 13; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: #14191b; }
+.inspector-navigation button { height: 30px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #a5afb4; font-size: 12px; cursor: pointer; }
+.inspector-navigation button:hover { background: #272e32; color: #fff; }
+.inspector-navigation button.active { border-color: #88513e; background: #392a24; color: #ffc1a8; }
+.right-panel { --ui-label: 11px; --ui-value: 12px; --ui-muted: #a4afb5; }
+.right-panel .property-row > label, .right-panel .toggle-row > span, .range-setting-head > label { font-size: 11px; color: #a4afb5; }
+.right-panel section > h3, .right-panel .collapsible-section > h3 { font-size: 11px; height: 38px; }
+.right-panel .property-row { grid-template-columns: 74px minmax(0, 1fr); min-height: 42px; }
+.right-panel input[type=number], .right-panel select, .readout { font-size: 11px; }
+.object-title small { font-size: 10px; }
+.viewport .toolbar { top: 54px; max-width: calc(100% - 24px); overflow-x: auto; }
+.toolbar .tool-group { flex-shrink: 0; }
+.viewport-hint { left: 12px; bottom: 12px; font-size: 10px; }
+.viewport-info { right: 12px; bottom: 32px; font-size: 11px; }
+.ui-workspace { grid-template-columns: 232px minmax(0, 1fr) 304px; }
+.ui-layer-list > button, .ui-page-row { font-size: 12px; }
+.ui-component-grid button, .ui-panel-label { font-size: 11px; }
+.ui-layer-panel, .ui-inspector { overflow: auto; }
+footer { height: 28px; font-size: 10px; color: #929ea4; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid #f39b72; outline-offset: 2px; }
+@media (min-width: 1500px) { .viewport .toolbar { top: 12px; } .workspace { --left-width: 252px; --right-width: 360px; } }
+@media (max-width: 1100px) {
+  .project-title { display: none; }
+  .workspace { --left-width: 200px; --right-width: 304px; }
+  .brand { width: 90px; }
+  .ui-workspace { grid-template-columns: 190px minmax(0, 1fr) 270px; }
+}
+@media (max-width: 980px) {
+  .workspace, .workspace.right-panel-collapsed { grid-template-areas: "left viewport right"; }
+  .workspace.left-panel-collapsed, .workspace.left-panel-collapsed.right-panel-collapsed { grid-template-areas: "left viewport right"; }
+  .right-panel { position: static; width: auto; box-shadow: none; }
+  .workspace-switch span { display: inline; }
+  .save-state { display: none; }
+}
+@media (max-width: 760px) {
+  .brand { width: auto; margin-right: 4px; } .brand small { display: none; }
+  .workspace-switch button { padding: 0 7px; }
+  .header { padding: 0 8px; gap: 4px; }
+  .workspace, .workspace.left-panel-collapsed, .workspace.right-panel-collapsed, .workspace.left-panel-collapsed.right-panel-collapsed { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(180px, 1fr) minmax(0, 42%); grid-template-areas: "viewport viewport" "left right"; }
+  .workspace.left-panel-collapsed { grid-template-areas: "viewport viewport" "right right"; }
+  .workspace.right-panel-collapsed { grid-template-areas: "viewport viewport" "left left"; }
+  .workspace.left-panel-collapsed.right-panel-collapsed { grid-template-rows: minmax(0, 1fr); grid-template-areas: "viewport viewport"; }
+  .left-panel, .right-panel { display: flex; border-top: 1px solid var(--line); }
+  .right-panel { display: block; }
+  .side-panel-reveal { display: grid; }
+  .viewport .toolbar { top: 48px; bottom: auto; }
+  .viewport-options { display: flex; }
+  .viewport-hint, .viewport-info { display: none; }
+  .tree-list { min-height: 55px; }
+  .asset-library { min-height: 60px; }
+  .ui-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(180px, 1fr) minmax(0, 42%); }
+  .ui-canvas-area { grid-area: 1 / 1 / 2 / 3; }
+  .ui-layer-panel { grid-area: 2 / 1; display: flex; }
+  .ui-inspector { grid-area: 2 / 2; display: flex; }
+  .add-button, .export-button { font-size: 0; padding: 0 7px; }
+  .add-button svg:last-child { display: none; }
+}
+@media (max-width: 420px) { .brand, .header-actions > .icon-button { display: none; } .workspace-switch button { font-size: 11px; } footer { gap: 10px; font-size: 9px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }

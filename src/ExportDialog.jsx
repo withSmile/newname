@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Check, Download, FileCode2, FolderOpen, Package, ShieldCheck, X } from 'lucide-react'
 import { buildSceneProject, chooseProjectDirectory, downloadProjectZip, getProjectSummary, validateSceneAssets, writeProjectDirectory } from './projectExporter'
+import { useParticles } from './features/particles/particleStore'
+import { useSceneEffects } from './features/scene-effects/sceneEffectStore'
 
 function Toggle({ checked, onChange, label, note, disabled = false }) {
   return <label className={`export-toggle ${disabled ? 'disabled' : ''}`}><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span><Check size={11} /></span><div><strong>{label}</strong><small>{note}</small></div></label>
@@ -19,6 +21,16 @@ export function ExportDialog({ objects, settings, editor, ui, onClose, notify })
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
+  const particleState = useParticles()
+  const sceneEffectState = useSceneEffects()
+  const particles = useMemo(() => {
+    const serializableKeys = ['enabled', 'playing', 'simulationSpeed', 'behavior', 'preset', 'count', 'rate', 'angle', 'opacity', 'stretch', 'randomColors', 'direction', 'wind', 'position', 'color', 'secondary', 'size', 'speed', 'gravity', 'lifetime', 'spread', 'spawnHeight', 'killHeight']
+    return Object.fromEntries(serializableKeys.filter((key) => key in particleState).map((key) => [key, particleState[key]]))
+  }, [particleState])
+  const sceneEffects = useMemo(() => {
+    const serializableKeys = ['enabled', 'preset', 'type', 'color', 'strength', 'scale', 'speed', 'position', 'rotation', 'size', 'targetMode', 'targetObjectId', 'inheritTargetTransform', 'waterAlpha', 'waterResolution', 'waterSunColor', 'waterSunIntensity', 'waterWaveScale', 'waterSkyEnabled', 'fluidSecondary', 'fluidCount', 'fluidPointSize', 'fluidOpacity', 'fluidSpread']
+    return Object.fromEntries(serializableKeys.filter((key) => key in sceneEffectState).map((key) => [key, sceneEffectState[key]]))
+  }, [sceneEffectState])
   const summary = useMemo(() => getProjectSummary(objects), [objects])
   const folderSupported = typeof window.showDirectoryPicker === 'function'
   const moduleExtension = language === 'ts' ? 'ts' : 'js'
@@ -34,7 +46,7 @@ export function ExportDialog({ objects, settings, editor, ui, onClose, notify })
     return () => { active = false }
   }, [objects, needsScene])
 
-  const build = () => buildSceneProject({ framework, language, folderName, exportMode, objects, settings, editor, ui, includeAssets, includeReadme, optimizeDraco, optimizeKtx2 })
+  const build = () => buildSceneProject({ framework, language, folderName, exportMode, objects, settings, editor, ui, particles, sceneEffects, includeAssets, includeReadme, optimizeDraco, optimizeKtx2 })
   const runExport = async (type) => {
     setBusy(true); setError(''); setProgress(type === 'folder' ? '等待选择保存位置' : '正在整理项目文件')
     try {

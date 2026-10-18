@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react'
 import { Activity, ArrowUp, Box, CircleDot, RotateCcw, RotateCw, Square, Zap } from 'lucide-react'
+import { NumberInput } from '../../components/NumberInput'
 import { useEditor } from '../../store'
 import { usePhysicsRuntime } from './physicsStore'
 
@@ -19,8 +20,8 @@ export function PhysicsPanel() {
   if (!object) return <div className="no-selection"><Box size={24} /><span>选择对象后配置物理</span></div>
 
   const patch = (values) => updateObject(object.id, values)
-  const number = (label, key, fallback, step = 0.1, options = {}) => <label><span>{label}</span><input type="number" step={step} min={options.min} max={options.max} value={object[key] ?? fallback} onChange={(event) => patch({ [key]: Number(event.target.value) })} /></label>
-  const vectorInputs = (label, key, fallback, step = 0.1) => <div className="physics-vector"><span>{label}</span>{(object[key] || fallback).map((value, index) => <input key={index} type="number" step={step} value={value} onChange={(event) => { const next = [...(object[key] || fallback)]; next[index] = Number(event.target.value); patch({ [key]: next }) }} />)}</div>
+  const number = (label, key, fallback, step = 0.1, options = {}) => <label><span>{label}</span><NumberInput step={step} min={options.min} max={options.max} value={object[key] ?? fallback} onValueChange={(value) => patch({ [key]: value })} /></label>
+  const vectorInputs = (label, key, fallback, step = 0.1) => <div className="physics-vector"><span>{label}</span>{(object[key] || fallback).map((value, index) => <NumberInput key={index} step={step} value={value} onValueChange={(number) => { const next = [...(object[key] || fallback)]; next[index] = number; patch({ [key]: next }) }} />)}</div>
   const axisLocks = (label, key) => <div className="physics-axis-lock"><span>{label}</span>{['X', 'Y', 'Z'].map((axis, index) => <label key={axis}><input type="checkbox" checked={Boolean(object[key]?.[index])} onChange={(event) => { const next = [...(object[key] || [false, false, false])]; next[index] = event.target.checked; patch({ [key]: next }) }} />{axis}</label>)}</div>
 
   const applyPreset = (id) => {
@@ -39,7 +40,7 @@ export function PhysicsPanel() {
     <div className="physics-global">
       <label><span>physicsWorld · 运行</span><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /></label>
       <label><span>debugRender · 调试线框</span><input type="checkbox" checked={debug} onChange={(event) => setDebug(event.target.checked)} /></label>
-      <div><span>gravity · 重力</span>{gravity.map((value, index) => <input key={index} type="number" step="0.1" value={value} onChange={(event) => { const next = [...gravity]; next[index] = Number(event.target.value); setGravity(next) }} />)}</div>
+      <div><span>gravity · 重力</span>{gravity.map((value, index) => <NumberInput key={index} step="0.1" value={value} onValueChange={(number) => { const next = [...gravity]; next[index] = number; setGravity(next) }} />)}</div>
     </div>
 
     <section className="physics-presets"><h3>物理案例 · Presets</h3><div>{PRESETS.map((preset) => <button key={preset.id} title={preset.description} onClick={() => applyPreset(preset.id)}><CircleDot size={12} /><span>{preset.label}</span><small>{preset.description.split(' · ')[0]}</small></button>)}</div></section>

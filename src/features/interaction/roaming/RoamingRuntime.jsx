@@ -15,6 +15,11 @@ const keys = new Set()
 const direction = new THREE.Vector3()
 const right = new THREE.Vector3()
 const candidate = new THREE.Vector3()
+const targetVelocity = new THREE.Vector3()
+const movement = new THREE.Vector3()
+const moveX = new THREE.Vector3()
+const moveZ = new THREE.Vector3()
+const collisionOrigin = new THREE.Vector3()
 const down = new THREE.Vector3(0, -1, 0)
 const autoTangent = new THREE.Vector3()
 const autoTarget = new THREE.Vector3()
@@ -50,12 +55,18 @@ export function RoamingRuntime({ objectRefs }) {
   const settings = useRoaming(useShallow((state) => ({
     mode: state.mode, pathPoints: state.pathPoints, speed: state.speed, loop: state.loop,
     curveType: state.curveType, tension: state.tension, bendFactor: state.bendFactor, lookAhead: state.lookAhead, eyeHeight: state.eyeHeight,
+    walkSpeed: state.walkSpeed, acceleration: state.acceleration, lookSensitivity: state.lookSensitivity,
     colliderRadius: state.colliderRadius, gravity: state.gravity, sprintMultiplier: state.sprintMultiplier,
     pathEdit: state.pathEdit,
+    showPath: state.showPath,
   })))
   const colliders = useRef([])
+  const colliderSourceCount = useRef(-1)
   const yaw = useRef(0)
   const pitch = useRef(0)
+  const targetYaw = useRef(0)
+  const targetPitch = useRef(0)
+  const velocity = useRef(new THREE.Vector3())
   const verticalSpeed = useRef(0)
   const elapsed = useRef(0)
   const progressWrite = useRef(0)
@@ -64,8 +75,14 @@ export function RoamingRuntime({ objectRefs }) {
   const curvePoints = useMemo(() => curve?.getPoints(Math.max(32, settings.pathPoints.length * 24)) || [], [curve, settings.pathPoints.length])
 
   useEffect(() => {
-    colliders.current = prepareColliders([...objectRefs.values()])
-    useRoaming.getState().setCollisionReady(colliders.current.length > 0)
+    const refresh = () => {
+      colliders.current = prepareColliders([...objectRefs.values()])
+      colliderSourceCount.current = objectRefs.size
+      useRoaming.getState().setCollisionReady(colliders.current.length > 0)
+    }
+    refresh()
+    const frame = requestAnimationFrame(refresh)
+    return () => cancelAnimationFrame(frame)
   }, [objectRefs, settings.mode])
 
   useEffect(() => {
@@ -73,8 +90,9 @@ export function RoamingRuntime({ objectRefs }) {
     const onKeyUp = (event) => keys.delete(event.code)
     const onMouseMove = (event) => {
       if (settings.mode !== 'manual' || document.pointerLockElement !== gl.domElement) return
-      yaw.current -= event.movementX * 0.0022
-      pitch.current = THREE.MathUtils.clamp(pitch.current - event.movementY * 0.0022, -1.48, 1.48)
+      const sensitivity = 0.0018 * settings.lookSensitivity
+      targetYaw.current -= event.movementX * sensitivity
+      targetPitch.current = THREE.MathUtils.clamp(targetPitch.current - event.movementY * sensitivity, -1.48, 1.48)
     }
     const onPointerLock = () => { if (settings.mode === 'manual' && document.pointerLockElement !== gl.domElement) useRoaming.getState().setMode('idle') }
     window.addEventListener('keydown', onKeyDown)
@@ -88,7 +106,7 @@ export function RoamingRuntime({ objectRefs }) {
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('pointerlockchange', onPointerLock)
     }
-  }, [settings.mode, gl])
+  }, [settings.mode, settings.lookSensitivity, gl])
 
   useEffect(() => {
     if (controls) controls.enabled = settings.mode === 'idle'
@@ -96,13 +114,25 @@ export function RoamingRuntime({ objectRefs }) {
       const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ')
       pitch.current = euler.x
       yaw.current = euler.y
+      targetPitch.current = euler.x
+      targetYaw.current = euler.y
+      velocity.current.set(0, 0, 0)
       verticalSpeed.current = 0
+      raycaster.set(camera.position, down)
+      raycaster.far = Math.max(100, camera.far)
+      const floor = raycaster.intersectObjects(colliders.current, false)[0]
+      camera.position.y = floor ? floor.point.y + settings.eyeHeight : settings.eyeHeight
     }
     if (settings.mode === 'auto') elapsed.current = useRoaming.getState().progress
     return () => { if (controls) controls.enabled = true }
-  }, [settings.mode, camera, controls])
+  }, [settings.mode, settings.eyeHeight, camera, controls, raycaster])
 
   useFrame((_, delta) => {
+    if (objectRefs.size !== colliderSourceCount.current || (objectRefs.size > 0 && colliders.current.length === 0)) {
+      colliders.current = prepareColliders([...objectRefs.values()])
+      colliderSourceCount.current = objectRefs.size
+      useRoaming.getState().setCollisionReady(colliders.current.length > 0)
+    }
     const dt = Math.min(delta, 0.05)
     if (settings.mode === 'auto' && curve) {
       const duration = Math.max(0.5, curve.getLength() / Math.max(0.05, settings.speed))
@@ -122,6 +152,8 @@ export function RoamingRuntime({ objectRefs }) {
       return
     }
     if (settings.mode !== 'manual') return
+    yaw.current = THREE.MathUtils.damp(yaw.current, targetYaw.current, 28, dt)
+    pitch.current = THREE.MathUtils.damp(pitch.current, targetPitch.current, 28, dt)
     camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ')
     direction.set(0, 0, 0)
     camera.getWorldDirection(candidate).setY(0).normalize()
@@ -130,20 +162,43 @@ export function RoamingRuntime({ objectRefs }) {
     if (keys.has('KeyS')) direction.sub(candidate)
     if (keys.has('KeyD')) direction.add(right)
     if (keys.has('KeyA')) direction.sub(right)
-    const moveSpeed = settings.speed * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? settings.sprintMultiplier : 1)
-    if (direction.lengthSq()) {
-      direction.normalize()
-      const distance = moveSpeed * dt
-      raycaster.set(camera.position, direction)
+    const moveSpeed = settings.walkSpeed * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? settings.sprintMultiplier : 1)
+    if (direction.lengthSq()) direction.normalize().multiplyScalar(moveSpeed)
+    targetVelocity.copy(direction)
+    const response = direction.lengthSq() ? settings.acceleration : settings.acceleration * 1.35
+    velocity.current.lerp(targetVelocity, 1 - Math.exp(-response * dt))
+    if (!direction.lengthSq() && velocity.current.lengthSq() < 0.0001) velocity.current.set(0, 0, 0)
+
+    movement.copy(velocity.current).multiplyScalar(dt)
+    const canMove = (step) => {
+      const distance = step.length()
+      if (distance < 0.00001) return true
+      candidate.copy(step).normalize()
+      collisionOrigin.copy(camera.position)
+      collisionOrigin.y -= Math.min(0.8, settings.eyeHeight * 0.5)
+      raycaster.set(collisionOrigin, candidate)
       raycaster.far = settings.colliderRadius + distance
-      if (!raycaster.intersectObjects(colliders.current, false).length) camera.position.addScaledVector(direction, distance)
+      return !raycaster.intersectObjects(colliders.current, false).length
+    }
+    if (canMove(movement)) camera.position.add(movement)
+    else {
+      moveX.set(movement.x, 0, 0)
+      moveZ.set(0, 0, movement.z)
+      if (canMove(moveX)) camera.position.add(moveX)
+      else velocity.current.x = 0
+      if (canMove(moveZ)) camera.position.add(moveZ)
+      else velocity.current.z = 0
     }
     raycaster.set(camera.position, down)
     raycaster.far = settings.eyeHeight + 0.6
     const floor = raycaster.intersectObjects(colliders.current, false)[0]
     if (floor) {
       const targetY = floor.point.y + settings.eyeHeight
-      if (camera.position.y <= targetY + 0.2) { camera.position.y = targetY; verticalSpeed.current = 0 }
+      if (camera.position.y <= targetY + 0.2) {
+        camera.position.y = camera.position.y < targetY ? targetY : THREE.MathUtils.damp(camera.position.y, targetY, 24, dt)
+        if (Math.abs(camera.position.y - targetY) < 0.002) camera.position.y = targetY
+        verticalSpeed.current = 0
+      }
       else { verticalSpeed.current -= settings.gravity * dt; camera.position.y += verticalSpeed.current * dt }
     } else if (camera.position.y <= settings.eyeHeight + 0.2) {
       camera.position.y = settings.eyeHeight
@@ -155,7 +210,7 @@ export function RoamingRuntime({ objectRefs }) {
     if (camera.position.y < -30) camera.position.set(0, settings.eyeHeight, 5)
   })
 
-  if (settings.mode !== 'idle' || !curvePoints.length) return null
+  if (settings.mode !== 'idle' || !curvePoints.length || (settings.showPath === false && !settings.pathEdit)) return null
   return <group name="RoamingPathHelper">
     <Line points={curvePoints} color="#e17653" lineWidth={1.2} dashed dashSize={0.18} gapSize={0.1} />
     {settings.pathEdit ? <RoamingPathPointEditor points={settings.pathPoints} /> : settings.pathPoints.map((point, index) => <mesh key={index} position={point} renderOrder={20}><sphereGeometry args={[0.09, 12, 8]} /><meshBasicMaterial color={index === 0 ? '#78b784' : '#e17653'} depthTest={false} depthWrite={false} /></mesh>)}

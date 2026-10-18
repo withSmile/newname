@@ -7,6 +7,11 @@ const seedObjects = [
 ]
 
 const sceneDefaults = {
+  sceneName: '未命名场景',
+  scenePreset: null,
+  cameraPosition: [6.5, 4.8, 7.5],
+  cameraTarget: [0, 0.7, 0],
+  autoPlayAnimations: false,
   environmentPreset: 'studio',
   backgroundMode: 'color',
   background: '#25292d',
@@ -42,6 +47,11 @@ const sceneDefaults = {
   exposure: 1,
   postProcessingEnabled: true,
   postProcessingQuality: 'balanced',
+  aoEnabled: false,
+  aoRadius: 1.5,
+  aoIntensity: 1.8,
+  aoDistanceFalloff: 0.8,
+  aoColor: '#000000',
   outlineEnabled: false,
   outlineEdgeStrength: 3,
   outlinePulseSpeed: 0,
@@ -100,6 +110,34 @@ const customLightDefaults = {
 
 const snapshot = (objects) => JSON.parse(JSON.stringify(objects))
 const makeName = (type, objects) => `${type[0].toUpperCase()}${type.slice(1)} ${objects.filter((o) => o.type === type).length + 1}`
+const reflectorDefaults = { type: 'mirror', color: '#b8dbe2', opacity: 1, resolution: 512, clipBias: 0.003, multisample: 4 }
+
+function migrateLegacyMirrorObjects(objects) {
+  const usedIds = new Set(objects.map((object) => object.id))
+  return objects.flatMap((object) => {
+    const legacy = object.effects?.material
+    if (object.type === 'reflector' || legacy?.type !== 'mirror') return [object]
+    const effects = { ...object.effects, material: { ...legacy, type: 'standard' } }
+    let id = `${object.id}-reflector`
+    let suffix = 2
+    while (usedIds.has(id)) { id = `${object.id}-reflector-${suffix}`; suffix += 1 }
+    usedIds.add(id)
+    const reflector = {
+      id,
+      name: `${object.name} 镜面`,
+      type: 'reflector',
+      position: [...object.position],
+      rotation: object.type === 'plane' ? [...object.rotation] : [(object.rotation?.[0] || 0) - Math.PI / 2, object.rotation?.[1] || 0, object.rotation?.[2] || 0],
+      scale: [...(object.scale || [1, 1, 1])],
+      visible: object.visible !== false,
+      castShadow: false,
+      receiveShadow: false,
+      mirror: { ...reflectorDefaults, ...legacy },
+    }
+    if (object.type === 'plane') return [reflector]
+    return [{ ...object, effects }, reflector]
+  })
+}
 
 export const useEditor = create((set, get) => ({
   objects: seedObjects,
@@ -115,8 +153,15 @@ export const useEditor = create((set, get) => ({
   ...sceneDefaults,
   history: [],
   future: [],
-  setSelected: (id) => set({ selectedId: id }),
-  setMode: (mode) => set({ mode }),
+  sceneLocked: false,
+  toggleSceneLock: () => set(s => ({ sceneLocked: !s.sceneLocked, selectedId: null, mode: 'select', objects: s.objects.map(o => o.locked ? { ...o, locked: false } : o) })),
+  setSelected: (id) => { if (id == null || (!get().sceneLocked && get().objects.some(o => o.id === id && !o.locked))) set({ selectedId: id }) },
+  toggleObjectLock: (id) => {
+    const s = get(); if (s.sceneLocked) return; const object = s.objects.find(o => o.id === id); if (!object) return
+    s.commit(s.objects.map(o => o.id === id ? { ...o, locked: !o.locked } : o))
+    if (!object.locked && s.selectedId === id) set({ selectedId: null })
+  },
+  setMode: (mode) => { if (!get().sceneLocked) set({ mode }) },
   setSpace: (space) => set({ space }),
   toggleGrid: () => set((s) => ({ grid: !s.grid })),
   toggleShadows: () => set((s) => ({ shadows: !s.shadows })),
@@ -124,8 +169,9 @@ export const useEditor = create((set, get) => ({
   setSnapSize: (snapSize) => set({ snapSize }),
   setProjection: (projection) => set({ projection }),
   setShading: (shading) => set({ shading }),
-  updateScene: (patch) => set(patch),
+  updateScene: (patch) => { if (!get().sceneLocked) set(patch) },
   addLight: (type) => {
+    if (get().sceneLocked) return
     const s = get()
     const id = `light-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     const count = s.customLights.filter((light) => light.type === type).length + 1
@@ -133,61 +179,70 @@ export const useEditor = create((set, get) => ({
     set({ customLights: [...s.customLights, light] })
     return id
   },
-  updateLight: (id, patch) => set((s) => ({ customLights: s.customLights.map((light) => light.id === id ? { ...light, ...patch } : light) })),
-  removeLight: (id) => set((s) => ({ customLights: s.customLights.filter((light) => light.id !== id) })),
-  commit: (next) => set((s) => ({ objects: next, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })),
+  updateLight: (id, patch) => set((s) => s.sceneLocked ? s : ({ customLights: s.customLights.map((light) => light.id === id ? { ...light, ...patch } : light) })),
+  removeLight: (id) => set((s) => s.sceneLocked ? s : ({ customLights: s.customLights.filter((light) => light.id !== id) })),
+  commit: (next) => set((s) => s.sceneLocked ? s : ({ objects: next, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })),
   updateObject: (id, patch, historic = true) => {
     const s = get()
+    const source = s.objects.find((object) => object.id === id)
+    if ((s.sceneLocked || source?.locked) && !Object.keys(patch).every(key => ['modelClips', 'modelMetrics', 'modelHierarchy', 'modelHierarchyTruncated', 'modelFiles', 'modelLoadState', 'modelLoadError'].includes(key))) return
+    if (!source || Object.entries(patch).every(([key, value]) => JSON.stringify(source[key]) === JSON.stringify(value))) return
     const next = s.objects.map((o) => o.id === id ? { ...o, ...patch } : o)
     if (historic) s.commit(next)
     else set({ objects: next })
   },
   addObject: (type) => {
+    if (get().sceneLocked) return
     const s = get()
     const id = `${type}-${Date.now()}`
     const flat = type === 'plane'
-    const flowPipe = type === 'flowPipe' ? { pipePoints: [[-1.8, 0, 0], [-0.6, 0.7, 0], [0.7, -0.2, 0.4], [1.8, 0.4, 0]], pipeRadius: 0.16, pipeSegments: 96, pipeRadialSegments: 16, pipeCurveType: 'catmullrom', pipeTension: 0.5, pipeBendFactor: 0.22, pipeClosed: false, pipeSmooth: true, pipeCreaseAngle: 60, flowMode: 'glow', flowSpeed: 0.5, flowDirection: 'forward', flowRepeat: 4, flowIntensity: 1.5, flowEmissive: '#2bbac7' } : {}
-    const next = [...s.objects, { id, name: makeName(type, s.objects), type, position: [0, flat ? 0.02 : 0.6, 0], rotation: flat ? [-Math.PI / 2, 0, 0] : [0, 0, 0], scale: [1, 1, 1], color: type === 'flowPipe' ? '#55c7d2' : '#7ca6d8', roughness: 0.4, metalness: 0.1, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, smoothShading: true, creaseAngle: 60, visible: true, ...flowPipe }]
+    const reflector = type === 'reflector'
+    const flowPipe = type === 'flowPipe' ? { pipePoints: [[-1.8, 0, 0], [-0.6, 0.7, 0], [0.7, -0.2, 0.4], [1.8, 0.4, 0]], pipeRadius: 0.16, pipeSegments: 96, pipeRadialSegments: 16, pipeCurveType: 'catmullrom', pipeTension: 0.5, pipeBendFactor: 0.22, pipeClosed: false, pipeSmooth: true, pipeCreaseAngle: 60, flowMode: 'glow', flowSpeed: 0.5, flowDirection: 'forward', flowRepeat: 4, flowIntensity: 1.5, flowEmissive: '#2bbac7', flowGlowColor: '#2bbac7', flowArrowColor: '#70f3ff', flowArrowCarrier: 'ribbon', flowPathWidth: 0.09, flowArrowSize: 0.28, flowArrowDensity: 1.4, flowArrowTailLength: 2.4 } : {}
+    const next = [...s.objects, { id, name: makeName(type, s.objects), type, position: [0, reflector ? 1 : flat ? 0.02 : 0.6, 0], rotation: flat ? [-Math.PI / 2, 0, 0] : [0, 0, 0], scale: [1, 1, 1], color: type === 'flowPipe' ? '#55c7d2' : '#7ca6d8', roughness: 0.4, metalness: 0.1, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, smoothShading: true, creaseAngle: 60, visible: true, castShadow: reflector ? false : undefined, receiveShadow: reflector ? false : undefined, ...(reflector ? { mirror: { ...reflectorDefaults } } : {}), ...flowPipe }]
     set({ objects: next, selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
-  addModel: ({ name, source, attribution, animated, format }) => {
+  addModel: ({ name, source, attribution, animated, format, assetId, files, ...settings }) => {
+    if (get().sceneLocked) return
     const s = get()
     const id = `model-${Date.now()}`
-    const model = { id, name: name || 'Imported Model', type: 'model', modelSource: source, modelFormat: format || 'glb', attribution, animated, position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#ffffff', roughness: 0.5, metalness: 0, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, smoothShading: true, creaseAngle: 60, visible: true }
+    const model = { id, name: name || 'Imported Model', type: 'model', modelSource: source, modelAssetId: assetId, modelFiles: files || [], modelFormat: format || 'glb', attribution, animated, position: [0, settings.modelPivotMode === 'ground' ? 0 : 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1], color: '#ffffff', roughness: 0.5, metalness: 0, opacity: 1, transparent: false, alphaTest: 0, depthWrite: true, doubleSided: false, smoothShading: true, creaseAngle: 60, modelFitMode: 'auto', sceneScale: 1, modelTargetSize: 1.8, modelPivotMode: 'center', modelNormalMode: 'source', modelShadowMode: 'auto', modelMaterialOverride: false, modelBvhEnabled: true, visible: true, ...settings }
     set({ objects: [...s.objects, model], selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
   deleteSelected: () => {
+    if (get().sceneLocked) return
     const s = get()
-    if (!s.selectedId) return
+    if (!s.selectedId || s.objects.find(o => o.id === s.selectedId)?.locked) return
     const next = s.objects.filter((o) => o.id !== s.selectedId)
-    set({ objects: next, selectedId: next[0]?.id ?? null, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
+    set({ objects: next, selectedId: next.find(o => !o.locked)?.id ?? null, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
   duplicateSelected: () => {
+    if (get().sceneLocked) return
     const s = get(); const source = s.objects.find((o) => o.id === s.selectedId)
-    if (!source) return
+    if (!source || source.locked) return
     const id = `${source.type}-${Date.now()}`
     const copy = { ...snapshot(source), id, name: `${source.name} Copy`, position: source.position.map((v, i) => v + (i === 0 ? 0.5 : 0)) }
     set({ objects: [...s.objects, copy], selectedId: id, history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })
   },
   undo: () => set((s) => {
-    if (!s.history.length) return s
+    if (s.sceneLocked || !s.history.length) return s
     const previous = s.history[s.history.length - 1]
-    return { objects: previous, history: s.history.slice(0, -1), future: [snapshot(s.objects), ...s.future], selectedId: previous.some((o) => o.id === s.selectedId) ? s.selectedId : previous[0]?.id ?? null }
+    return { objects: previous, history: s.history.slice(0, -1), future: [snapshot(s.objects), ...s.future], selectedId: previous.some((o) => o.id === s.selectedId && !o.locked) ? s.selectedId : previous.find(o => !o.locked)?.id ?? null }
   }),
   redo: () => set((s) => {
-    if (!s.future.length) return s
+    if (s.sceneLocked || !s.future.length) return s
     const next = s.future[0]
-    return { objects: next, history: [...s.history, snapshot(s.objects)], future: s.future.slice(1), selectedId: next.some((o) => o.id === s.selectedId) ? s.selectedId : next[0]?.id ?? null }
+    return { objects: next, history: [...s.history.slice(-39), snapshot(s.objects)], future: s.future.slice(1), selectedId: next.some((o) => o.id === s.selectedId && !o.locked) ? s.selectedId : next.find(o => !o.locked)?.id ?? null }
   }),
-  loadScene: (data) => {
-    if (!Array.isArray(data?.objects)) return false
-    const valid = data.objects.filter((o) => o?.id && o?.type && Array.isArray(o.position))
-    if (!valid.length) return false
+  loadScene: (data, { historic = true } = {}) => {
+    if (get().sceneLocked || !Array.isArray(data?.objects)) return false
+    const valid = migrateLegacyMirrorObjects(data.objects.filter((o) => o?.id && o?.type && Array.isArray(o.position)))
     const settings = data.settings && typeof data.settings === 'object'
       ? Object.fromEntries(Object.keys(sceneDefaults).filter((key) => data.settings[key] !== undefined).map((key) => [key, data.settings[key]]))
       : {}
-    set((s) => ({ ...settings, objects: valid, selectedId: valid[0].id, history: [...s.history, snapshot(s.objects)], future: [] }))
+    set((s) => ({ ...settings, objects: valid, selectedId: valid.find(o => !o.locked)?.id ?? null, history: historic ? [...s.history.slice(-39), snapshot(s.objects)] : [], future: [] }))
     return true
   },
-  resetScene: () => set((s) => ({ ...sceneDefaults, objects: snapshot(seedObjects), selectedId: 'cube-1', history: [...s.history, snapshot(s.objects)], future: [] })),
+  resetScene: () => set((s) => s.sceneLocked ? s : ({ ...sceneDefaults, objects: snapshot(seedObjects), selectedId: 'cube-1', history: [...s.history.slice(-39), snapshot(s.objects)], future: [] })),
 }))
+
+export const DEFAULT_SCENE_SETTINGS = sceneDefaults

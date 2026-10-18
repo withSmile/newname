@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useMemo, useRef } from 'react'
-import { TransformControls } from '@react-three/drei'
+import { Line, TransformControls } from '@react-three/drei'
 import { createPortal, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js'
@@ -102,40 +102,117 @@ function createPipeCurve(rawPoints, object) {
   return new THREE.CatmullRomCurve3(points, closed, type, object.pipeTension ?? 0.5)
 }
 
-function FlowArrows({ curve, object }) {
+function createArrowTrailGeometry(size, tailScale) {
+  const positions = []
+  const colors = []
+  const tailLength = size * THREE.MathUtils.clamp(tailScale, 0.8, 8)
+  const tailHalfWidth = size * 0.11
+  const headHalfWidth = size * 0.5
+  const headLength = size * 0.95
+  const pushVertex = (x, y, alpha) => {
+    positions.push(x, y, 0)
+    colors.push(1, 1, 1, alpha)
+  }
+  const pushTriangle = (a, b, c) => {
+    ;[a, b, c].forEach(([x, y, alpha]) => pushVertex(x, y, alpha))
+  }
+
+  // Vertex alpha fades the tail without requiring one transparent mesh per segment.
+  pushTriangle([-tailHalfWidth * 0.22, -tailLength, 0], [tailHalfWidth * 0.22, -tailLength, 0], [-tailHalfWidth, 0, 0.9])
+  pushTriangle([tailHalfWidth * 0.22, -tailLength, 0], [tailHalfWidth, 0, 0.9], [-tailHalfWidth, 0, 0.9])
+  pushTriangle([-headHalfWidth, 0, 0.96], [headHalfWidth, 0, 0.96], [0, headLength, 1])
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4))
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function FlowRibbon({ curve, object, selected, onSelect }) {
+  const segments = THREE.MathUtils.clamp(Math.round(object.pipeSegments ?? 96), 16, 256)
+  const points = useMemo(() => curve.getSpacedPoints(segments), [curve, segments])
+  const width = Math.max(0.025, object.flowPathWidth ?? 0.09)
+  const color = object.flowArrowColor || object.flowEmissive || '#70f3ff'
+  const handleSelect = (event) => { event.stopPropagation(); onSelect() }
+  return <>
+    <Line points={points} color={selected ? '#fff4dd' : '#10282d'} lineWidth={width * (selected ? 1.9 : 1.65)} worldUnits transparent opacity={selected ? 0.72 : 0.5} depthWrite={false} renderOrder={1} onClick={handleSelect} />
+    <Line points={points} color={color} lineWidth={width} worldUnits transparent opacity={0.52} depthWrite={false} renderOrder={2} onClick={handleSelect} />
+  </>
+}
+
+function FlowArrows({ curve, object, surfaceOffset = 0, onSelect }) {
   const meshRef = useRef()
+  const haloRef = useRef()
   const offset = useRef(0)
+  const camera = useThree((state) => state.camera)
   const dummy = useMemo(() => new THREE.Object3D(), [])
   const tangent = useMemo(() => new THREE.Vector3(), [])
-  const normal = useMemo(() => new THREE.Vector3(), [])
   const position = useMemo(() => new THREE.Vector3(), [])
+  const cameraLocal = useMemo(() => new THREE.Vector3(), [])
+  const planeNormal = useMemo(() => new THREE.Vector3(), [])
+  const side = useMemo(() => new THREE.Vector3(), [])
   const up = useMemo(() => new THREE.Vector3(0, 1, 0), [])
   const fallbackAxis = useMemo(() => new THREE.Vector3(1, 0, 0), [])
-  const count = Math.max(3, Math.round(object.flowArrowCount ?? 12))
+  const rotation = useMemo(() => new THREE.Matrix4(), [])
+  const length = useMemo(() => Math.max(curve.getLength(), 0.001), [curve])
+  const arrowSize = Math.max(0.04, object.flowArrowSize ?? 0.28)
+  // Density is arrows per world unit; derive it from spacing for older saved scenes.
+  const legacyDensity = 1 / Math.max(0.08, object.flowArrowSpacing ?? 0.72)
+  const density = THREE.MathUtils.clamp(object.flowArrowDensity ?? legacyDensity, 0.2, 8)
+  const count = THREE.MathUtils.clamp(Math.round(length * density), 1, 128)
+  const geometry = useMemo(() => createArrowTrailGeometry(arrowSize, object.flowArrowTailLength ?? 2.4), [arrowSize, object.flowArrowTailLength])
+  useEffect(() => () => geometry.dispose(), [geometry])
+  useEffect(() => {
+    meshRef.current?.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    haloRef.current?.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  }, [count])
   useFrame((_, delta) => {
     if (!meshRef.current) return
     const sign = object.flowDirection === 'reverse' ? -1 : 1
-    offset.current = (offset.current + delta * (object.flowSpeed ?? 0.5) * 0.08 * sign + 1) % 1
+    // Normalize by curve length so speed remains world-units per second on every path.
+    offset.current = (offset.current + delta * Math.max(0, object.flowSpeed ?? 0.5) / length * sign + 1) % 1
+    camera.getWorldPosition(cameraLocal)
+    meshRef.current.parent?.worldToLocal(cameraLocal)
     for (let index = 0; index < count; index += 1) {
       const t = (index / count + offset.current + 1) % 1
       curve.getPointAt(t, position)
       curve.getTangentAt(t, tangent).normalize().multiplyScalar(sign)
-      normal.crossVectors(tangent, up)
-      if (normal.lengthSq() < 0.001) normal.crossVectors(tangent, fallbackAxis)
-      normal.normalize().cross(tangent).normalize()
-      dummy.position.copy(position).addScaledVector(normal, (object.pipeRadius ?? 0.16) * 1.12)
-      dummy.quaternion.setFromUnitVectors(up, tangent)
+
+      // Build a camera-facing frame around the curve tangent so flat arrows stay readable.
+      planeNormal.copy(cameraLocal).sub(position)
+      planeNormal.addScaledVector(tangent, -planeNormal.dot(tangent))
+      if (planeNormal.lengthSq() < 0.0001) planeNormal.copy(up).addScaledVector(tangent, -up.dot(tangent))
+      if (planeNormal.lengthSq() < 0.0001) planeNormal.copy(fallbackAxis).addScaledVector(tangent, -fallbackAxis.dot(tangent))
+      planeNormal.normalize()
+      side.crossVectors(tangent, planeNormal).normalize()
+      planeNormal.crossVectors(side, tangent).normalize()
+      rotation.makeBasis(side, tangent, planeNormal)
+      dummy.position.copy(position).addScaledVector(planeNormal, surfaceOffset)
+      dummy.quaternion.setFromRotationMatrix(rotation)
       dummy.scale.setScalar(1)
       dummy.updateMatrix()
       meshRef.current.setMatrixAt(index, dummy.matrix)
+      if (haloRef.current) {
+        dummy.scale.set(1.42, 1.04, 1.42)
+        dummy.updateMatrix()
+        haloRef.current.setMatrixAt(index, dummy.matrix)
+      }
     }
     meshRef.current.instanceMatrix.needsUpdate = true
+    if (haloRef.current) haloRef.current.instanceMatrix.needsUpdate = true
   })
-  const radius = object.pipeRadius ?? 0.16
-  return <instancedMesh ref={meshRef} args={[undefined, undefined, count]} renderOrder={4}>
-    <coneGeometry args={[radius * 0.62, radius * 1.9, 8]} />
-    <meshBasicMaterial color={object.flowEmissive || '#70f3ff'} transparent opacity={0.95} depthWrite={false} toneMapped={false} />
-  </instancedMesh>
+  const color = object.flowArrowColor || object.flowEmissive || '#70f3ff'
+  const handleSelect = (event) => { event.stopPropagation(); onSelect() }
+  return <>
+    <instancedMesh ref={haloRef} args={[geometry, undefined, count]} frustumCulled={false} renderOrder={3} onClick={handleSelect}>
+      <meshBasicMaterial color={color} vertexColors transparent opacity={0.18} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
+    </instancedMesh>
+    <instancedMesh ref={meshRef} args={[geometry, undefined, count]} frustumCulled={false} renderOrder={4} onClick={handleSelect}>
+      <meshBasicMaterial color={color} vertexColors transparent opacity={0.96} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
+    </instancedMesh>
+  </>
 }
 
 function PipePointEditor({ points, radius, onCommit }) {
@@ -169,13 +246,16 @@ export const FlowPipeObject = forwardRef(function FlowPipeObject({ object, selec
   const [texture, setTexture] = React.useState(generatedTexture)
   const points = object.pipePoints?.length > 1 ? object.pipePoints : [[-1.5, 0, 0], [0, 0.5, 0], [1.5, 0, 0]]
   const curve = useMemo(() => createPipeCurve(points, object), [points, object.pipeClosed, object.pipeCurveType, object.pipeTension, object.pipeBendFactor])
+  const arrowCarrier = object.flowArrowCarrier || 'ribbon'
+  const usesTube = object.flowMode !== 'arrow' || arrowCarrier === 'tube'
   const geometry = useMemo(() => {
+    if (!usesTube) return null
     const baseGeometry = new THREE.TubeGeometry(curve, object.pipeSegments ?? 96, object.pipeRadius ?? 0.16, object.pipeRadialSegments ?? 16, Boolean(object.pipeClosed))
     if ((object.smoothShading ?? object.pipeSmooth) === false) return baseGeometry
     const smoothGeometry = toCreasedNormals(baseGeometry, THREE.MathUtils.degToRad(object.creaseAngle ?? object.pipeCreaseAngle ?? 60))
     if (smoothGeometry !== baseGeometry) baseGeometry.dispose()
     return smoothGeometry
-  }, [curve, object.pipeSegments, object.pipeRadius, object.pipeRadialSegments, object.pipeClosed, object.smoothShading, object.creaseAngle, object.pipeSmooth, object.pipeCreaseAngle])
+  }, [usesTube, curve, object.pipeSegments, object.pipeRadius, object.pipeRadialSegments, object.pipeClosed, object.smoothShading, object.creaseAngle, object.pipeSmooth, object.pipeCreaseAngle])
 
   useEffect(() => {
     if (object.flowMode !== 'texture' || !object.flowTexture) { setTexture(generatedTexture); return undefined }
@@ -184,7 +264,7 @@ export const FlowPipeObject = forwardRef(function FlowPipeObject({ object, selec
     return () => { active = false; loaded.dispose() }
   }, [object.flowMode, object.flowTexture, generatedTexture])
   useEffect(() => () => generatedTexture.dispose(), [generatedTexture])
-  useEffect(() => () => geometry.dispose(), [geometry])
+  useEffect(() => () => geometry?.dispose(), [geometry])
   useEffect(() => {
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping
     texture.repeat.set(Math.max(0.25, object.flowRepeat ?? 4), 1)
@@ -197,11 +277,12 @@ export const FlowPipeObject = forwardRef(function FlowPipeObject({ object, selec
 
   const flowingMap = object.flowMode === 'arrow' ? null : texture
   return <group ref={ref} name={object.name} position={object.position} rotation={object.rotation} scale={object.scale} visible={object.visible}>
-    <mesh geometry={geometry} raycast={object.pipeEditPoints ? () => null : undefined} castShadow={object.castShadow !== false} receiveShadow={object.receiveShadow !== false} onClick={(event) => { event.stopPropagation(); onSelect() }}>
-      <meshStandardMaterial ref={materialRef} color={object.color || '#55c7d2'} map={flowingMap} emissive={object.flowEmissive || '#2bbac7'} emissiveMap={flowingMap} emissiveIntensity={object.flowMode === 'arrow' ? 0.35 : object.flowIntensity ?? 1.5} roughness={object.roughness ?? 0.35} metalness={object.metalness ?? 0.15} transparent={Boolean(object.transparent) || (object.opacity ?? 1) < 1} opacity={object.opacity ?? 1} depthWrite={object.depthWrite !== false} flatShading={(object.smoothShading ?? object.pipeSmooth) === false} wireframe={shading === 'wireframe'} />
+    {geometry && <mesh geometry={geometry} raycast={object.pipeEditPoints ? () => null : undefined} castShadow={object.castShadow !== false} receiveShadow={object.receiveShadow !== false} onClick={(event) => { event.stopPropagation(); onSelect() }}>
+      <meshStandardMaterial ref={materialRef} color={object.color || '#55c7d2'} map={flowingMap} emissive={object.flowGlowColor || object.flowEmissive || '#2bbac7'} emissiveMap={flowingMap} emissiveIntensity={object.flowMode === 'arrow' ? 0.35 : object.flowIntensity ?? 1.5} roughness={object.roughness ?? 0.35} metalness={object.metalness ?? 0.15} transparent={Boolean(object.transparent) || (object.opacity ?? 1) < 1} opacity={object.opacity ?? 1} depthWrite={object.depthWrite !== false} flatShading={(object.smoothShading ?? object.pipeSmooth) === false} wireframe={shading === 'wireframe'} />
       {selected && !object.pipeEditPoints && <lineSegments><edgesGeometry args={[geometry, 18]} /><lineBasicMaterial color="#fff7dd" /></lineSegments>}
-    </mesh>
-    {object.flowMode === 'arrow' && <FlowArrows curve={curve} object={object} />}
+    </mesh>}
+    {object.flowMode === 'arrow' && arrowCarrier === 'ribbon' && <FlowRibbon curve={curve} object={object} selected={selected} onSelect={onSelect} />}
+    {object.flowMode === 'arrow' && <FlowArrows curve={curve} object={object} surfaceOffset={arrowCarrier === 'tube' ? (object.pipeRadius ?? 0.16) * 1.08 : 0.012} onSelect={onSelect} />}
     {selected && object.pipeEditPoints && <PipePointEditor points={points} radius={object.pipeRadius ?? 0.16} onCommit={onUpdatePoints} />}
   </group>
 })
